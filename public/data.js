@@ -65,7 +65,6 @@ export const EQUIPMENT_ITEMS = [
 export const SALES_MANAGERS = [
     { name: "박진철", phone: "010-7130-8285" },
     { name: "임학빈", phone: "010-4259-2044" },
-    { name: "공대은", phone: "010-2486-8571" },
     { name: "이태평", phone: "010-3855-3416" },
     { name: "전무승", phone: "010-5269-5357" },
     { name: "김태훈", phone: "010-5393-1308" },

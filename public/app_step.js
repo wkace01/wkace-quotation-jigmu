@@ -1,27 +1,24 @@
 // ---- Master Data (Linked from constants.js) ----
 const { 
-    QUOTATION_CONDITIONS, 
-    ADJUSTMENT_COEFFICIENTS, 
-    SALES_MANAGERS, 
-    GRADE_STYLES, 
-    GRADE_WAGES, 
-    GRADE_ORDER,
-    COND_RANGE_LABELS
+    JIGMU_BASE_PRICES,
+    SALES_MANAGERS
 } = window.CONSTANTS;
 
 // ---- State ----
 const state = {
     customerName: "",
-    maintenanceFrequency: "2회",
-    appointmentFrequency: "12개월",
-    floorArea: 0,
+    capReceiving: 0,
+    capGeneration: 0,
+    capSolar: 0,
+    capOther: 0,
+    estimateDate: "", // 견적일
+    specialNote: "",  // 특이사항 입력
     address: "",      // UI 표시용 (참고용)
+    addressDetail: "", // 상세 주소 직접 입력분
     roadAddress: "",  // 에어테이블 저장용 (표준 도로명)
     buildingName: "",
     jibunAddress: "",
     zonecode: "",
-    purpose: "",
-    useAprDay: "",
     manager: "",
     managerPhone: "",
     managerPosition: "",
@@ -31,203 +28,118 @@ const state = {
     salesManagerPhone: "",
     selectedEquipments: new Set(),
     condOverride: {},         // 사용자가 수정한 조건표 값 { key: value }
-    _lastConditionArea: -1,  // 이전 구간 추적 (구간 변경 시 override 초기화용)
     itemToggles: {
-        appointment: true,
-        maintenance: true,
-        inspection: true
+        lowVoltage: true,
+        highVoltage: true,
+        generator: true,
+        thermal: true,
+        powerQuality: true,
+        report: true,
+        solarPanel: true,
+        monthly: true
     },
     discount: 0, // 할인율 (%)
+    // 점검 조건 옵션
+    powerOutage: '무정전',      // '정전' | '무정전'
+    inspectionCount: 1,       // 1 ~ 4 (점검횟수)
+    monthlyApplicable: '없음', // '없음' | '있음'
+    monthlyCount: 8,           // 8 | 12 (월차 연간 횟수)
+    inspectionScope: '배전반',   // '배전반' | '배전반+EPS'
     results: {
-        grade: "",
-        coef: 1,
-        inspectionWorkers: 0,
-        maintenanceWorkers: 0,
-        costs: { inspection: 0, maintenance: 0, appointment: 0, yearly: 0, monthly: 0 }
+        totalCapacity: 0,
+        costs: { lowVoltage: 0, highVoltage: 0, generator: 0, thermal: 0, powerQuality: 0, report: 0, solarPanel: 0, monthly: 0, yearlyTotal: 0 }
     }
 };
 
-// (Redundant constants removed, using window.CONSTANTS)
-
-// ---- 인건비 산출 헬퍼 ----
-// workers: 투입인원, grade: 건물등급 → 해당 등급만 인원 배정, 나머지 0
-function calcLaborBreakdown(workers, grade) {
-    const rows = GRADE_ORDER.map(g => ({
-        grade: g,
-        workers: g === grade ? workers : "",         // 해당 등급 아니면 빈칸
-        wage: g === grade ? GRADE_WAGES[g] : "",     // 해당 등급 아니면 단가도 빈칸
-        amount: g === grade ? workers * GRADE_WAGES[g] : 0,
-    }));
-    const labor = workers * (GRADE_WAGES[grade] || 0);        // 직접인건비
-    const expense = Math.round(labor * 0.1);                     // 직접경비 (인건비×10%)
-    const general = Math.round(labor * 1.1);                     // 제경비   (인건비×110%)
-    const tech = Math.round((labor + general) * 0.2);         // 기술료   ((인건비+제경비)×20%)
-    return {
-        rows, labor, expense, general, tech,
-        total: labor + expense + general + tech
-    };
-}
-
-
-function calcFloorGrade(area) {
-    if (!area || area < 5000) return '';   // 5,000㎡ 미만은 해당 없음
-    if (area < 15000) return '초급';       // 5,000 이상 ~ 15,000 미만
-    if (area < 30000) return '중급';       // 15,000 이상 ~ 30,000 미만
-    if (area < 60000) return '고급';       // 30,000 이상 ~ 60,000 미만
-    return '특급';                          // 60,000 이상
-}
-
-function updateGradeBadge(area) {
-    const el = document.getElementById('floor-grade');
-    if (!el) return;
-    const grade = calcFloorGrade(area);
-    if (!grade) {
-        el.textContent = '연면적 입력 후 자동 분류';
-        el.style.color = 'var(--text-muted)';
-        el.style.fontSize = '0.95rem';
-        return;
-    }
-    const style = GRADE_STYLES[grade];
-    el.textContent = grade;
-    el.style.color = style.color;
-    el.style.fontSize = '1.2rem';
-}
-
-// ---- Lookup Helpers ----
-function lookupCondition(area) {
-    // Find the highest bracket the area qualifies for
-    let match = null;
-    for (const c of QUOTATION_CONDITIONS) {
-        if (area >= c.area) match = c;
-    }
-    return match;
-}
-
-function lookupCoef(area) {
-    let match = null;
-    for (const c of ADJUSTMENT_COEFFICIENTS) {
-        if (area >= c.area) match = c;
-    }
-    return match;
-}
-
 // ---- Calculation ----
 function calculate() {
-    const area = state.floorArea || 0;
-    const condition = lookupCondition(area);
-    const coefObj = lookupCoef(area);
+    const totalCap = (state.capReceiving || 0) + (state.capGeneration || 0) + (state.capSolar || 0) + (state.capOther || 0);
+    state.results.totalCapacity = totalCap;
 
-    if (!condition || !coefObj) {
-        state.results.grade = "연면적 부족 (5,000㎡ 이상)";
-        state.results.coef = 0;
-        state.results.inspectionWorkers = 0;
-        state.results.maintenanceWorkers = 0;
-        state.results.costs = { inspection: 0, maintenance: 0, appointment: 0, yearly: 0, monthly: 0 };
-        updateUI();
-        return;
-    }
+    const eff = getEffectiveCond();
 
-    state.results.grade = condition.grade;
-    state.results.coef = coefObj.coef;
+    state.results.costs.lowVoltage = eff.lowVoltage;
+    state.results.costs.highVoltage = eff.highVoltage;
+    state.results.costs.generator = eff.generator;
+    state.results.costs.thermal = eff.thermal;
+    state.results.costs.powerQuality = eff.powerQuality;
+    state.results.costs.report = eff.report;
+    state.results.costs.solarPanel = eff.solarPanel;
+    // 월차점검비 = 회당 단가 × 연간 점검 횟수 (해당있음 시), 없음이면 0
+    state.results.costs.monthly = state.monthlyApplicable === '있음'
+        ? (eff.monthly || 0) * (state.monthlyCount || 8)
+        : 0;
 
-    // Auto-update grade badge
-    updateGradeBadge(area);
-
-    // Workers - 조건표의 인력값을 그대로 가져옴 (override 반영)
-    const eff = getEffectiveCond(condition);
-    state.results.inspectionWorkers = eff.inspectionWorkers;
-    state.results.maintenanceWorkers = eff.maintenanceWorkers;
-
-    // Costs - override를 반영한 유효한 조건값 사용
-    state.results.costs.inspection = eff.yearlyInspection;
-    state.results.costs.maintenance = eff.yearlyMaintenance;
-    state.results.costs.appointment = eff.yearlyAppointment;
-
-    // Total before discount
-    const subtotal = eff.yearlyInspection + eff.yearlyMaintenance + eff.yearlyAppointment;
-    // Apply discount
+    const subtotal = eff.lowVoltage + eff.highVoltage + eff.generator + eff.thermal + eff.powerQuality + eff.report + eff.solarPanel;
     const discountAmount = Math.round(subtotal * (state.discount / 100));
-    state.results.costs.yearly = subtotal - discountAmount;
-    state.results.costs.monthly = Math.floor(state.results.costs.yearly / 12);
+    state.results.costs.yearlyTotal = subtotal - discountAmount;
 
-    // \uc870\uac74\ud45c \ud328\ub110 \uc5c5\ub370\uc774\ud2b8
-    updateConditionPanel(condition);
-
+    updateConditionPanel(eff);
     updateUI();
 }
 
-// ―― Condition Panel ――
-// (Redundant COND_RANGE_LABELS removed)
+// ―― Condition Panel (직무고시 버전) ――
 
-function getEffectiveCond(condition) {
-    // override가 있으면 사용자 값, 없으면 기본값 사용
-    // 단, itemToggles가 false이면 모든 관련 값을 0으로 반전
-    const isApp = state.itemToggles.appointment;
-    const isMaint = state.itemToggles.maintenance;
-    const isInsp = state.itemToggles.inspection;
+function getEffectiveCond() {
+    // JIGMU_BASE_PRICES를 기본값으로, condOverride가 있으면 사용자 값 사용
+    // itemToggles[key]가 false면 해당 항목 0으로 처리
+    const bp = window.CONSTANTS.JIGMU_BASE_PRICES;
+    const ov = state.condOverride;
+    const tog = state.itemToggles;
 
     return {
-        monthlyAppointment: isApp ? (state.condOverride.monthlyAppointment ?? condition.monthlyAppointment) : 0,
-        yearlyAppointment: isApp ? (state.condOverride.yearlyAppointment ?? condition.yearlyAppointment) : 0,
-        yearlyMaintenance: isMaint ? (state.condOverride.yearlyMaintenance ?? condition.yearlyMaintenance) : 0,
-        yearlyInspection: isInsp ? (state.condOverride.yearlyInspection ?? condition.yearlyInspection) : 0,
-        inspectionWorkers: isInsp ? (state.condOverride.inspectionWorkers ?? condition.inspectionWorkers) : 0,
-        maintenanceWorkers: isMaint ? (state.condOverride.maintenanceWorkers ?? condition.maintenanceWorkers) : 0,
+        lowVoltage:  tog.lowVoltage  ? (ov.lowVoltage  ?? bp.lowVoltage)  : 0,
+        highVoltage: tog.highVoltage ? (ov.highVoltage ?? bp.highVoltage) : 0,
+        generator:   tog.generator   ? (ov.generator   ?? bp.generator)   : 0,
+        thermal:     tog.thermal     ? (ov.thermal     ?? bp.thermal)     : 0,
+        powerQuality:tog.powerQuality? (ov.powerQuality?? bp.powerQuality): 0,
+        report:      tog.report      ? (ov.report      ?? bp.report)      : 0,
+        solarPanel:  tog.solarPanel  ? (ov.solarPanel  ?? bp.solarPanel)  : 0,
+        monthly:     tog.monthly     ? (ov.monthly     ?? bp.monthly)     : 0,
     };
 }
 
-function updateConditionPanel(condition) {
+function updateConditionPanel(eff) {
     const panel = document.getElementById('card-condition');
     if (!panel) return;
-
-    // 연면적 구간이 달라진 경우 override 리셋
-    if (state._lastConditionArea !== condition.area) {
-        state.condOverride = {};
-        state._lastConditionArea = condition.area;
-    }
-    const eff = getEffectiveCond(condition);
 
     const fmt = (n) => Math.round(n).toLocaleString('ko-KR');
 
     // 패널 표시
     panel.style.display = 'block';
-    document.getElementById('cond-grade').textContent = condition.grade;
-    document.getElementById('cond-range-label').textContent = COND_RANGE_LABELS[condition.area] || '';
 
+    // 직무고시 단가 inputs 채우기
     const inputs = [
-        { id: 'cond-monthly-appointment', val: fmt(eff.monthlyAppointment) },
-        { id: 'cond-yearly-appointment', val: fmt(eff.yearlyAppointment) },
-        { id: 'cond-yearly-maintenance', val: fmt(eff.yearlyMaintenance) },
-        { id: 'cond-yearly-inspection', val: fmt(eff.yearlyInspection) },
-        { id: 'cond-inspection-workers', val: eff.inspectionWorkers },
-        { id: 'cond-maintenance-workers', val: eff.maintenanceWorkers }
+        { id: 'cond-low-voltage',   val: fmt(eff.lowVoltage) },
+        { id: 'cond-high-voltage',  val: fmt(eff.highVoltage) },
+        { id: 'cond-generator',     val: fmt(eff.generator) },
+        { id: 'cond-thermal',       val: fmt(eff.thermal) },
+        { id: 'cond-power-quality', val: fmt(eff.powerQuality) },
+        { id: 'cond-report',        val: fmt(eff.report) },
+        { id: 'cond-solar-panel',   val: fmt(eff.solarPanel) },
+        { id: 'cond-monthly',       val: fmt(eff.monthly) },
     ];
 
     inputs.forEach(item => {
         const el = document.getElementById(item.id);
-        // 포커스 중인 엘리먼트는 값을 덮어쓰지 않음 (커서 튐 및 jitter 방지)
         if (el && document.activeElement !== el) {
             el.value = item.val;
         }
     });
 
-    const mFreq = document.getElementById('cond-maintenance-frequency');
-    if (mFreq && document.activeElement !== mFreq) mFreq.value = state.maintenanceFrequency;
-    const aFreq = document.getElementById('cond-appointment-frequency');
-    if (aFreq && document.activeElement !== aFreq) aFreq.value = state.appointmentFrequency;
-
     document.getElementById('cond-discount-display').textContent = state.discount + '%';
 
-    const subtotal = eff.yearlyAppointment + eff.yearlyMaintenance + eff.yearlyInspection;
-    const discountAmount = Math.round(subtotal * (state.discount / 100));
-    const yearlyTotal = subtotal - discountAmount;
-    const monthlyTotal = Math.floor(yearlyTotal / 12);
+    // 합계 표시
+    const yearlySubtotal = eff.lowVoltage + eff.highVoltage + eff.generator + eff.thermal + eff.powerQuality + eff.report + eff.solarPanel;
+    const discountAmount = Math.round(yearlySubtotal * (state.discount / 100));
+    const yearlyTotal = yearlySubtotal - discountAmount;
     document.getElementById('cond-yearly-total').textContent = fmt(yearlyTotal) + '원';
-    document.getElementById('cond-monthly-total').textContent = fmt(monthlyTotal) + '원';
+    document.getElementById('cond-monthly-total').textContent = fmt(state.results.costs.monthly) + '원';
 
-    // 수정된 필드 하이라이트
-    ['monthly-appointment', 'yearly-appointment', 'yearly-maintenance', 'yearly-inspection', 'inspection-workers', 'maintenance-workers'].forEach(key => {
+    // 수정된 필드 하이라이트 처리
+    ['low-voltage', 'high-voltage', 'generator', 'thermal', 'power-quality', 'report', 'solar-panel', 'monthly'].forEach(key => {
         const el = document.getElementById('cond-' + key);
+        if (!el) return;
         const stateKey = key.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
         if (state.condOverride[stateKey] !== undefined) {
             el.style.background = '#fef3c7';
@@ -238,7 +150,7 @@ function updateConditionPanel(condition) {
         }
     });
 
-    // Toggle \uc544\uc774\ucf58 \ubc0f \ud589 \uc0c1\ud0dc \uc5c5\ub370\uc774\ud2b8
+    // Toggle 아이콘 및 행 상태 업데이트
     document.querySelectorAll('.btn-toggle-item').forEach(btn => {
         const item = btn.dataset.item;
         const isActive = state.itemToggles[item];
@@ -250,7 +162,7 @@ function updateConditionPanel(condition) {
 
     document.querySelectorAll('.cond-row[data-row-item]').forEach(row => {
         const item = row.dataset.rowItem;
-        if (state.itemToggles[item]) {
+        if (state.itemToggles[item] !== false) {
             row.classList.remove('item-disabled');
         } else {
             row.classList.add('item-disabled');
@@ -258,277 +170,71 @@ function updateConditionPanel(condition) {
     });
 }
 
-// ---- UI Rendering ----
+// ---- UI Rendering (직무고시 버전) ----
 function updateUI() {
-    const hasArea = state.floorArea > 0;
-    const hasValidCondition = !!lookupCondition(state.floorArea);
+    const hasData = !!(state.address || state.customerName);
 
-    document.getElementById('card-summary').style.display = (hasArea && currentStep >= 2) ? 'block' : 'none';
-    document.getElementById('card-detail').style.display = hasArea ? 'block' : 'none';
-    if (!hasArea) document.getElementById('card-condition').style.display = 'none';
+    document.getElementById('card-summary').style.display = (hasData && currentStep >= 2) ? 'block' : 'none';
+    document.getElementById('card-detail').style.display = hasData ? 'block' : 'none';
 
-    // Right Panel Elements visibility are managed primarily by goToStep 
-    // unless necessary to update within a step
+    // Right Panel Elements
     const bottomActions = document.getElementById('card-bottom-actions');
     if (bottomActions && window.currentStep === 3) {
-        bottomActions.style.display = hasArea ? 'flex' : 'none';
+        bottomActions.style.display = 'flex';
     }
 
-    if (!hasArea) return;
+    // 우측 summary
+    const totalCap = state.results.totalCapacity || 0;
+    const resGrade = document.getElementById('res-grade');
+    if (resGrade) resGrade.textContent = totalCap > 0 ? totalCap.toLocaleString() + ' kW' : '-';
 
-    document.getElementById('res-grade').textContent = state.results.grade;
-    document.getElementById('res-coef').textContent = hasValidCondition ? state.results.coef.toFixed(2) : '-';
-    document.getElementById('res-workers').textContent = hasValidCondition ? state.results.inspectionWorkers + " 명" : '-';
-    document.getElementById('res-maint-workers').textContent = hasValidCondition ? state.results.maintenanceWorkers + " 명" : '-';
-    document.getElementById('res-yearly').textContent = "₩ " + state.results.costs.yearly.toLocaleString();
-    document.getElementById('res-monthly').textContent = "₩ " + state.results.costs.monthly.toLocaleString();
+    const resYearly = document.getElementById('res-yearly');
+    if (resYearly) resYearly.textContent = '₩ ' + (state.results.costs.yearlyTotal || 0).toLocaleString();
+
+    const resMonthly = document.getElementById('res-monthly');
+    if (resMonthly) resMonthly.textContent = '₩ ' + (state.results.costs.monthly || 0).toLocaleString();
 
     renderTabs();
 }
 
+// ---- renderTabs (직무고시 버전) ----
 function renderTabs() {
     const fmt = n => Math.round(n).toLocaleString('ko-KR');
+    const c = state.results.costs;
+    const totalCap = state.results.totalCapacity || 0;
 
-    // Tab 1: Summary
-    const subtotal = state.results.costs.inspection + state.results.costs.maintenance + state.results.costs.appointment;
+    // 연차 성능점검 소계 및 할인 계산
+    const yearlySubtotal = (c.lowVoltage || 0) + (c.highVoltage || 0) + (c.generator || 0) + (c.thermal || 0) + (c.powerQuality || 0) + (c.report || 0) + (c.solarPanel || 0);
     const discountRow = state.discount > 0
-        ? `<tr style="color:#ef4444"><td>할인율 (${state.discount}%)</td><td>- ₩ ${Math.round(subtotal * (state.discount / 100)).toLocaleString()}</td><td>견적 할인</td></tr>`
+        ? `<tr style="color:#ef4444"><td>할인율 (${state.discount}%)</td><td>- ₩ ${fmt(Math.round(yearlySubtotal * (state.discount / 100)))}</td><td>견적 할인</td></tr>`
         : '';
 
-    document.getElementById('tbl-q-total').innerHTML = `
-        <tr><td>대상물 (고객명)</td><td>${state.customerName || '-'}</td><td></td></tr>
-        <tr><td>연면적</td><td>${state.floorArea.toLocaleString()} ㎡</td><td>등급: <span style="font-weight:600; color:var(--toss-blue);">${state.results.grade}</span></td></tr>
-        <tr><td>담당자 정보</td><td>${state.manager || '-'} ${state.managerPosition ? '(' + state.managerPosition + ')' : ''}</td><td>${state.managerPhone || '-'} ${state.managerMobile ? ' / ' + state.managerMobile : ''}</td></tr>
-        <tr><td>성능점검</td><td>₩ ${state.results.costs.inspection.toLocaleString()}</td><td>연 1회</td></tr>
-        <tr><td>유지점검</td><td>₩ ${state.results.costs.maintenance.toLocaleString()}</td><td>${state.maintenanceFrequency}</td></tr>
-        <tr><td>위탁선임</td><td>₩ ${state.results.costs.appointment.toLocaleString()}</td><td>${state.appointmentFrequency}</td></tr>
-        ${discountRow}
-        <tr style="font-weight:700; color:var(--toss-blue)"><td>최종 합계 (연간)</td><td>₩ ${state.results.costs.yearly.toLocaleString()}</td><td>부가세 별도</td></tr>
-        <tr style="font-weight:600"><td>월 납부액</td><td>₩ ${state.results.costs.monthly.toLocaleString()}</td><td>÷12</td></tr>
-    `;
-
-    // Tab 2: Inspection
-    const inspB = calcLaborBreakdown(state.results.inspectionWorkers, state.results.grade);
-    document.getElementById('tbl-q-inspection').innerHTML =
-        inspB.rows.filter(r => r.workers > 0).map(r => `
-        <tr style="font-weight:600; color:var(--toss-text-main);">
-            <td>${r.grade} 정보통신기술자</td>
-            <td>${r.workers}명 × ₩ ${r.wage.toLocaleString()}</td>
-            <td>₩ ${r.amount.toLocaleString()}</td>
-        </tr>`).join('') + `
-        <tr style="border-top:1px solid var(--toss-border); font-weight:700;">
-            <td>직접인건비 소계</td><td></td><td>₩ ${inspB.labor.toLocaleString()}</td>
-        </tr>
-        <tr><td>직접경비</td><td>인건비 × 10%</td><td>₩ ${inspB.expense.toLocaleString()}</td></tr>
-        <tr><td>제경비</td><td>인건비 × 110%</td><td>₩ ${inspB.general.toLocaleString()}</td></tr>
-        <tr><td>기술료</td><td>(인건비 + 제경비) × 20%</td><td>₩ ${inspB.tech.toLocaleString()}</td></tr>
-        <tr style="font-weight:700; color:var(--toss-blue)">
-            <td>산출 합계</td><td></td><td>₩ ${inspB.total.toLocaleString()}</td>
-        </tr>
-        <tr style="color:${state.results.costs.inspection - inspB.total >= 0 ? 'var(--toss-green)' : 'var(--toss-red)'}">
-            <td>조정 금액</td>
-            <td>목표금액 − 산출합계</td>
-            <td>${state.results.costs.inspection - inspB.total >= 0 ? '+' : ''}₩ ${(state.results.costs.inspection - inspB.total).toLocaleString()}</td>
-        </tr>
-        <tr style="font-weight:700; border-top:1px solid var(--toss-border); color:var(--toss-text-main);">
-            <td>최종 합계 (목표금액)</td><td>견적 조건표 적용</td><td>₩ ${state.results.costs.inspection.toLocaleString()}</td>
-        </tr>`;
-
-    // Tab 3: Maintenance
-    const maintB = calcLaborBreakdown(state.results.maintenanceWorkers, state.results.grade);
-    document.getElementById('tbl-q-maintenance').innerHTML =
-        maintB.rows.filter(r => r.workers > 0).map(r => `
-        <tr style="font-weight:600; color:var(--toss-text-main);">
-            <td>${r.grade} 정보통신기술자</td>
-            <td>${r.workers}명 × ₩ ${r.wage.toLocaleString()}</td>
-            <td>₩ ${r.amount.toLocaleString()}</td>
-        </tr>`).join('') + `
-        <tr style="border-top:1px solid var(--toss-border); font-weight:700;">
-            <td>직접인건비 소계</td><td></td><td>₩ ${maintB.labor.toLocaleString()}</td>
-        </tr>
-        <tr><td>직접경비</td><td>인건비 × 10%</td><td>₩ ${maintB.expense.toLocaleString()}</td></tr>
-        <tr><td>제경비</td><td>인건비 × 110%</td><td>₩ ${maintB.general.toLocaleString()}</td></tr>
-        <tr><td>기술료</td><td>(인건비 + 제경비) × 20%</td><td>₩ ${maintB.tech.toLocaleString()}</td></tr>
-        <tr style="font-weight:700; color:var(--toss-blue)">
-            <td>산출 합계</td><td></td><td>₩ ${maintB.total.toLocaleString()}</td>
-        </tr>
-        <tr style="color:${state.results.costs.maintenance - maintB.total >= 0 ? 'var(--toss-green)' : 'var(--toss-red)'}">
-            <td>조정 금액</td>
-            <td>목표금액 − 산출합계</td>
-            <td>${state.results.costs.maintenance - maintB.total >= 0 ? '+' : ''}₩ ${(state.results.costs.maintenance - maintB.total).toLocaleString()}</td>
-        </tr>
-        <tr style="font-weight:700; border-top:1px solid var(--toss-border); color:var(--toss-text-main);">
-            <td>최종 합계 (목표금액)</td><td>견적 조건표 적용</td><td>₩ ${state.results.costs.maintenance.toLocaleString()}</td>
-        </tr>`;
-
-    // Tab 4: Appointment
-    document.getElementById('tbl-q-appointment').innerHTML = `
-        <tr><td>선임 등급</td><td>${state.results.grade} 1명</td><td>연면적 기준</td></tr>
-        <tr><td>월 단가</td><td>₩ ${(state.results.costs.appointment / 12).toLocaleString()}</td><td>× 12개월</td></tr>
-        <tr style="font-weight:700; color:var(--toss-text-main);"><td>연간 선임 합계</td><td></td><td>₩ ${state.results.costs.appointment.toLocaleString()}</td></tr>
-    `;
-
-    // 데이터 기준 토글 패널 (tab2, tab3 공통)
-    ['tab2', 'tab3'].forEach(tabId => {
-        const tab = document.getElementById(tabId);
-        if (!tab) return;
-
-        // 기존 토글 제거 후 재생성
-        const old = tab.querySelector('.data-ref-toggle-wrap');
-        if (old) old.remove();
-
-        const condition = lookupCondition(state.floorArea);
-        const coefObj = lookupCoef(state.floorArea);
-        if (!condition || !coefObj) return;
-
-        const eff = getEffectiveCond(condition);
-
-        const wrap = document.createElement('div');
-        wrap.className = 'data-ref-toggle-wrap';
-        wrap.style.cssText = 'margin-top:0.75rem;';
-
-        const btn = document.createElement('button');
-        btn.innerHTML = '<i class="fas fa-database"></i> 데이터 기준 보기';
-        btn.style.cssText = [
-            'background:var(--toss-input-bg)', 'border:none', 'border-radius:100px',
-            'padding:0.5rem 1rem', 'cursor:pointer', 'font-size:0.85rem', 'font-weight:600',
-            'color:var(--toss-text-sub)', 'display:flex', 'align-items:center', 'gap:0.4rem',
-            'transition: background 0.2s', 'width: fit-content'
-        ].join(';');
-
-        const panel = document.createElement('div');
-        panel.style.cssText = [
-            'display:none', 'margin-top:0.6rem', 'background:#f8fafc',
-            'border:1px solid #e5e7eb', 'border-radius:8px', 'padding:0.9rem 1rem',
-            'font-size:0.82rem', 'color:#374151'
-        ].join(';');
-
-        // 노임단가
-        const wageRows = GRADE_ORDER.map(g =>
-            `<tr ${g === condition.grade ? 'style="font-weight:700;color:var(--primary-color)"' : ''}>
-                <td style="padding:2px 8px">${g} 기술자</td>
-                <td style="padding:2px 8px; text-align:right">₩ ${GRADE_WAGES[g].toLocaleString()}</td>
-                <td style="padding:2px 8px; color:#9ca3af">${g === condition.grade ? '← 적용 등급' : ''}</td>
-            </tr>`
-        ).join('');
-
-        // 적용 조건표
-        const condRows = [
-            ['연면적 구간', COND_RANGE_LABELS[condition.area] || '-'],
-            ['등급', condition.grade],
-            ['성능점검 (연)', `₩ ${fmt(eff.yearlyInspection)}`],
-            ['성능점검 인력', `${eff.inspectionWorkers}명`],
-            ['유지점검 (연)', `₩ ${fmt(eff.yearlyMaintenance)}`],
-            ['유지점검 인력', `${eff.maintenanceWorkers}명`],
-            ['위탁선임 (월)', `₩ ${fmt(eff.monthlyAppointment)}`],
-            ['위탁선임 (연)', `₩ ${fmt(eff.yearlyAppointment)}`],
-        ].map(([k, v]) =>
-            `<tr><td style="padding:2px 8px;color:#6b7280">${k}</td><td style="padding:2px 8px;font-weight:600">${v}</td></tr>`
-        ).join('');
-
-        // 조정계수
-        const coefRows = ADJUSTMENT_COEFFICIENTS.map(c =>
-            `<tr ${c.area === coefObj.area ? 'style="font-weight:700;color:var(--primary-color)"' : ''}>
-                <td style="padding:2px 8px">${COND_RANGE_LABELS[c.area] || c.area.toLocaleString() + '㎡이상'}</td>
-                <td style="padding:2px 8px;text-align:right">${c.coef.toFixed(2)}</td>
-                <td style="padding:2px 8px;color:#9ca3af">${c.area === coefObj.area ? '← 현재 적용' : ''}</td>
-            </tr>`
-        ).join('');
-
-        panel.innerHTML = (() => {
-            const wageHtml = GRADE_ORDER.map(g => {
-                const a = g === condition.grade;
-                return `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0;border-bottom:1px solid var(--toss-border);gap:0.5rem;">
-                    <span style="display:flex;align-items:center;gap:0.5rem;">
-                        <span style="display:inline-flex;align-items:center;justify-content:center;width:40px;flex-shrink:0;">${a ? '<span style="background:var(--toss-blue);color:white;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:6px;">적용</span>' : ''}</span>
-                        <span style="font-size:0.85rem;font-weight:${a ? '700' : '500'};color:${a ? 'var(--toss-blue)' : 'var(--toss-text-main)'};white-space:nowrap;">${g} 기술자</span>
-                    </span>
-                    <span style="font-size:0.85rem;font-weight:${a ? '700' : '600'};color:${a ? 'var(--toss-blue)' : 'var(--toss-text-sub)'};font-variant-numeric:tabular-nums;white-space:nowrap;">₩ ${GRADE_WAGES[g].toLocaleString()}</span>
-                </div>`;
-            }).join('');
-
-            const coefHtml = ADJUSTMENT_COEFFICIENTS.map(c => {
-                const a = c.area === coefObj.area;
-                const label = (COND_RANGE_LABELS[c.area] || '')
-                    .replace(' ≤ 연면적', '').replace(/ ㎡/g, '').replace('< ', '<');
-                return `<div style="background:${a ? 'var(--toss-blue)' : 'var(--toss-input-bg)'};color:${a ? 'white' : 'var(--toss-text-main)'};border-radius:var(--radius-sm);padding:0.5rem 0.75rem;text-align:center;white-space:nowrap;border:1px solid ${a ? 'var(--toss-blue)' : 'var(--toss-border)'}; flex: 1 1 calc(25% - 0.5rem); min-width: 80px;">
-                    <div style="font-size:0.7rem;opacity:${a ? .9 : .6};margin-bottom:2px;">${label || c.area.toLocaleString() + '㎡~'}</div>
-                    <div style="font-size:0.95rem;font-weight:700;">${c.coef.toFixed(2)}</div>
-                </div>`;
-            }).join('');
-
-            const COND_ROWS = [
-                { label: '등급', fn: c => `<span style="font-weight:700;color:${GRADE_STYLES[c.grade]?.color || 'var(--toss-text-main)'}">${c.grade}</span>` },
-                { label: '성능점검 (연)', fn: c => '₩ ' + fmt(c.yearlyInspection) },
-                { label: '성능점검 인력', fn: c => c.inspectionWorkers + '명' },
-                { label: '유지점검 (연)', fn: c => '₩ ' + fmt(c.yearlyMaintenance) },
-                { label: '유지점검 인력', fn: c => c.maintenanceWorkers + '명' },
-                { label: '위탁선임 (월)', fn: c => '₩ ' + fmt(c.monthlyAppointment) },
-                { label: '위탁선임 (연)', fn: c => '₩ ' + fmt(c.yearlyAppointment) },
-            ];
-
-            const thCells = QUOTATION_CONDITIONS.map(c => {
-                const a = c.area === condition.area;
-                return `<th style="padding:0.5rem 0.75rem;font-size:0.75rem;font-weight:${a ? '700' : '600'};background:${a ? 'var(--toss-blue)' : 'var(--toss-input-bg)'};color:${a ? 'white' : 'var(--toss-text-sub)'};border-bottom:2px solid ${a ? 'var(--toss-blue)' : 'var(--toss-border)'};text-align:center;white-space:nowrap;">
-                    ${(COND_RANGE_LABELS[c.area] || '').replace(' ≤ 연면적 <', '<br><').replace(/㎡/g, '㎡')}
-                    ${a ? '<div style="font-size:0.65rem;opacity:.9;margin-top:4px;background:rgba(255,255,255,0.2);padding:2px 4px;border-radius:4px;">현재 적용 구간</div>' : ''}
-                </th>`;
-            }).join('');
-
-            const bodyRows = COND_ROWS.map(row => {
-                const tds = QUOTATION_CONDITIONS.map(c => {
-                    const a = c.area === condition.area;
-                    return `<td style="padding:0.5rem 0.75rem;font-size:0.85rem;text-align:center;border-bottom:1px solid var(--toss-border);background:${a ? 'var(--toss-blue-bg)' : 'transparent'};font-weight:${a ? '700' : '500'};color:${a ? 'var(--toss-blue)' : 'var(--toss-text-main)'};white-space:nowrap;">${row.fn(c)}</td>`;
-                }).join('');
-                return `<tr>
-                    <td style="padding:0.5rem 0.75rem;font-size:0.8rem;color:var(--toss-text-sub);background:var(--toss-input-bg);border-bottom:1px solid var(--toss-border);border-right:1px solid var(--toss-border);white-space:nowrap;font-weight:600;">${row.label}</td>
-                    ${tds}
-                </tr>`;
-            }).join('');
-
-            return `
-            <div style="display:grid;grid-template-columns:1fr;gap:1rem;margin-bottom:1rem; @media (min-width: 768px) { grid-template-columns: 1fr 2fr; }">
-                <div style="background:var(--toss-card-bg);border:1px solid var(--toss-border);border-radius:var(--radius-md);padding:1rem;box-shadow:var(--shadow-sm);">
-                    <div style="font-size:0.9rem;font-weight:700;color:var(--toss-text-main);margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;">
-                        <i class="fas fa-coins" style="color:var(--toss-blue);"></i> 등급별 노임단가 (원/인·일)
-                    </div>
-                    ${wageHtml}
-                </div>
-                <div style="background:var(--toss-card-bg);border:1px solid var(--toss-border);border-radius:var(--radius-md);padding:1rem;box-shadow:var(--shadow-sm);">
-                    <div style="font-size:0.9rem;font-weight:700;color:var(--toss-text-main);margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;">
-                        <i class="fas fa-chart-line" style="color:var(--toss-blue);"></i> 연면적 조정계수
-                    </div>
-                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">${coefHtml}</div>
-                </div>
-            </div>
-            <div style="background:var(--toss-card-bg);border:1px solid var(--toss-border);border-radius:var(--radius-md);padding:1rem;overflow-x:auto;box-shadow:var(--shadow-sm);">
-                <div style="font-size:0.9rem;font-weight:700;color:var(--toss-text-main);margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;">
-                    <i class="fas fa-table" style="color:var(--toss-blue);"></i> 견적 조건표 (전체 구간)
-                </div>
-                <table style="width:100%;border-collapse:collapse;min-width:700px;">
-                    <thead><tr>
-                        <th style="padding:0.5rem 0.75rem;font-size:0.8rem;font-weight:700;background:var(--toss-input-bg);color:var(--toss-text-main);border-bottom:2px solid var(--toss-border);border-right:1px solid var(--toss-border);text-align:left;white-space:nowrap;">항목</th>
-                        ${thCells}
-                    </tr></thead>
-                    <tbody>${bodyRows}</tbody>
-                </table>
-            </div>`;
-        })();
-
-
-        btn.addEventListener('click', () => {
-            const open = panel.style.display !== 'none';
-            panel.style.display = open ? 'none' : 'block';
-            btn.innerHTML = open
-                ? '<i class="fas fa-database"></i> 데이터 기준 보기'
-                : '<i class="fas fa-chevron-up"></i> 데이터 기준 접기';
-        });
-
-        wrap.appendChild(btn);
-        wrap.appendChild(panel);
-        tab.appendChild(wrap);
-    });
+    const tblTotal = document.getElementById('tbl-q-total');
+    if (tblTotal) {
+        tblTotal.innerHTML = `
+            <tr><td>대상처명 (고객명)</td><td>${state.customerName || '-'}</td><td></td></tr>
+            <tr><td>주소</td><td colspan="2">${state.address || '-'}</td></tr>
+            <tr><td>총 설비용량</td><td>${totalCap > 0 ? totalCap.toLocaleString() + ' kW' : '-'}</td><td>수전+발전+태양광+기타</td></tr>
+            <tr><td>담당자</td><td>${state.manager || '-'}${state.managerPosition ? ' (' + state.managerPosition + ')' : ''}</td><td>${state.managerPhone || ''}</td></tr>
+            <tr style="border-top:1px solid var(--toss-border);"><td>저압 전기설비 점검</td><td>₩ ${fmt(c.lowVoltage || 0)}</td><td>${state.itemToggles.lowVoltage ? '포함' : '제외'}</td></tr>
+            <tr><td>고압 전기설비 점검</td><td>₩ ${fmt(c.highVoltage || 0)}</td><td>${state.itemToggles.highVoltage ? '포함' : '제외'}</td></tr>
+            <tr><td>예비발전 설비 점검</td><td>₩ ${fmt(c.generator || 0)}</td><td>${state.itemToggles.generator ? '포함' : '제외'}</td></tr>
+            <tr><td>열화상 적외선측정</td><td>₩ ${fmt(c.thermal || 0)}</td><td>${state.itemToggles.thermal ? '포함' : '제외'}</td></tr>
+            <tr><td>전원 품질분석</td><td>₩ ${fmt(c.powerQuality || 0)}</td><td>${state.itemToggles.powerQuality ? '포함' : '제외'}</td></tr>
+            <tr><td>기록 및 보고서 작성</td><td>₩ ${fmt(c.report || 0)}</td><td>${state.itemToggles.report ? '포함' : '제외'}</td></tr>
+            <tr><td>태양광 발전설비</td><td>₩ ${fmt(c.solarPanel || 0)}</td><td>${state.itemToggles.solarPanel ? '포함' : '제외'}</td></tr>
+            ${discountRow}
+            <tr style="font-weight:700; color:var(--toss-blue); border-top:2px solid var(--toss-blue);"><td>직무고시(전기안전)점검 합계</td><td>₩ ${fmt(c.yearlyTotal || 0)}</td><td>부가세 별도</td></tr>
+            <tr style="font-weight:600;"><td>월차 점검비용 (회당)</td><td>₩ ${fmt(c.monthly || 0)}</td><td>${state.itemToggles.monthly ? '포함' : '제외'}</td></tr>
+            <tr style="border-top:1px solid var(--toss-border); color:var(--toss-text-sub); font-size:0.85rem;"><td>정전 여부</td><td colspan="2">${state.powerOutage}</td></tr>
+            <tr style="color:var(--toss-text-sub); font-size:0.85rem;"><td>점검 횟수</td><td colspan="2">연 ${state.inspectionCount}회</td></tr>
+            <tr style="color:var(--toss-text-sub); font-size:0.85rem;"><td>월차점검</td><td colspan="2">${state.monthlyApplicable === '있음' ? '있음 (연 ' + state.monthlyCount + '회)' : '해당없음'}</td></tr>
+            <tr style="color:var(--toss-text-sub); font-size:0.85rem;"><td>점검 범위</td><td colspan="2">${state.inspectionScope === '배전반+EPS' ? '수전실 내 배전반 + EPS실' : '수전실 내 배전반'}</td></tr>
+        `;
+    }
 }
+
+
 
 
 // ---- Building Register API (ported from 건축물대장-연면적-조회-서비스) ----
@@ -632,20 +338,9 @@ document.getElementById('customer-name').addEventListener('input', (e) => {
     calculate();
 });
 
-document.getElementById('floor-area').addEventListener('input', (e) => {
-    state.floorArea = parseFloat(e.target.value) || 0;
-    updateGradeBadge(state.floorArea);
-
-    // 연면적을 직접 입력한 경우 카드 표시 보장
-    // (Step Wizard에서 자동 관리되므로 수동 display 조절 생략)
-
-    calculate();
-});
-
 // 조건표 기본값 복원 버튼
 document.getElementById('btn-restore-cond').addEventListener('click', () => {
     state.condOverride = {};
-    state._lastConditionArea = -1; // 구간 재계산 강제 트리거
     calculate();
 });
 
@@ -654,31 +349,9 @@ document.getElementById('btn-fetch-building').addEventListener('click', fetchBui
 
 document.getElementById('btn-apply-building').addEventListener('click', () => {
     if (!_lastBuildingResult) return;
-    // Fill floor area with raw total (주건축물 연면적)
-    const rawArea = _lastBuildingResult['_rawMainArea'];
-    const purpose = _lastBuildingResult['_rawPurpose'];
     const bldName = _lastBuildingResult['건축물명'];
 
-    if (rawArea) {
-        document.getElementById('floor-area').value = rawArea.toFixed(2);
-        state.floorArea = rawArea;
-    }
-    // 사용승인일 자동 입력
-    const aprDay = _lastBuildingResult['사용승인일'];
-    if (aprDay && aprDay !== '-') {
-        // YYYYMMDD → YYYY-MM-DD 포맷팅
-        const fmt = aprDay.length === 8
-            ? `${aprDay.slice(0, 4)}-${aprDay.slice(4, 6)}-${aprDay.slice(6, 8)}`
-            : aprDay;
-        document.getElementById('use-apr-day').value = fmt;
-        state.useAprDay = fmt;
-    }
-    // 주용도 (상위 3개)
-    const topPurpose = _lastBuildingResult['주용도'];
-    if (topPurpose && topPurpose !== '-') {
-        document.getElementById('purpose').value = topPurpose;
-        state.purpose = topPurpose;
-    }
+    // 직무고시: 건물명만 고객명에 반영
     if (bldName && bldName !== '-' && !state.customerName) {
         document.getElementById('customer-name').value = bldName;
         state.customerName = bldName;
@@ -686,26 +359,18 @@ document.getElementById('btn-apply-building').addEventListener('click', () => {
     calculate();
 
     // Visual feedback
-    const btn = document.getElementById('btn-apply-building');
-    btn.textContent = '✅ 적용 완료!';
-    btn.style.background = '#059669';
+    const applyBtn = document.getElementById('btn-apply-building');
+    applyBtn.textContent = '✅ 적용 완료!';
+    applyBtn.style.background = '#059669';
     setTimeout(() => {
-        btn.innerHTML = '✅ 이 값으로 적용';
-        btn.style.background = '#10b981';
+        applyBtn.innerHTML = '✅ 이 값으로 적용';
+        applyBtn.style.background = '#10b981';
     }, 2000);
-});
-
-
-document.getElementById('purpose').addEventListener('input', (e) => {
-    state.purpose = e.target.value;
-});
-
-document.getElementById('use-apr-day').addEventListener('input', (e) => {
-    state.useAprDay = e.target.value;
 });
 
 document.getElementById('manager').addEventListener('input', (e) => {
     state.manager = e.target.value;
+    calculate();
 });
 
 // ---- 전화번호 자동 포맷팅 유틸 ----
@@ -776,64 +441,107 @@ document.getElementById('manager-email').addEventListener('input', (e) => {
     calculate();
 });
 
-// 영업 담당자 변경 시 연락처 자동 입력
-document.getElementById('sales-manager').addEventListener('change', (e) => {
-    const selectedName = e.target.value;
-    const manager = SALES_MANAGERS.find(m => m.name === selectedName);
+const addressDetailEl = document.getElementById('address-detail');
+if (addressDetailEl) {
+    addressDetailEl.addEventListener('input', (e) => {
+        state.addressDetail = e.target.value;
+    });
+}
 
-    state.salesManager = selectedName;
-    state.salesManagerPhone = manager ? manager.phone : "";
+const specialNoteEl = document.getElementById('special-note');
+if (specialNoteEl) {
+    specialNoteEl.addEventListener('input', (e) => {
+        state.specialNote = e.target.value;
+    });
+}
 
-    // UI 업데이트
-    const phoneInput = document.getElementById('sales-manager-phone');
-    if (phoneInput) {
-        phoneInput.value = state.salesManagerPhone;
+// 영업 담당자 자동완성 또는 직접 입력
+document.getElementById('sales-manager').addEventListener('input', (e) => {
+    const enteredName = e.target.value;
+    const manager = SALES_MANAGERS.find(m => m.name === enteredName);
+
+    state.salesManager = enteredName;
+
+    // 리스트에 존재하는 담당자라면 연락처 자동 기입
+    if (manager) {
+        state.salesManagerPhone = manager.phone;
+        const phoneInput = document.getElementById('sales-manager-phone');
+        if (phoneInput) {
+            phoneInput.value = manager.phone;
+        }
     }
 });
 
+// 영업 담당자 연락처 수동 입력
+const smPhoneEl = document.getElementById('sales-manager-phone');
+if (smPhoneEl) {
+    smPhoneEl.addEventListener('input', function () {
+        const pos = this.selectionStart;
+        const before = this.value;
+        const formatted = formatPhone(this.value);
+        if (before !== formatted) {
+            this.value = formatted;
+            const added = formatted.length - before.length;
+            const newPos = Math.max(0, pos + added);
+            this.setSelectionRange(newPos, newPos);
+        }
+        state.salesManagerPhone = formatted;
+    });
+}
+
+// 견적일 설정 및 변경 감지
+const estDateEl = document.getElementById('estimate-date');
+if (estDateEl) {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    estDateEl.value = `${yyyy}-${mm}-${dd}`;
+    state.estimateDate = `${yyyy}년 ${parseInt(mm)}월 ${parseInt(dd)}일`;
+
+    estDateEl.addEventListener('change', (e) => {
+        const d = new Date(e.target.value);
+        if(!isNaN(d.getTime())) {
+            state.estimateDate = `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+        } else {
+            state.estimateDate = "";
+        }
+    });
+}
+
 // ---- Condition Table Inputs ----
 const COND_INPUT_MAP = {
-    'cond-monthly-appointment': 'monthlyAppointment',
-    'cond-yearly-appointment': 'yearlyAppointment',
-    'cond-yearly-maintenance': 'yearlyMaintenance',
-    'cond-yearly-inspection': 'yearlyInspection',
-    'cond-inspection-workers': 'inspectionWorkers',
-    'cond-maintenance-workers': 'maintenanceWorkers',
+    'cond-low-voltage': 'lowVoltage',
+    'cond-high-voltage': 'highVoltage',
+    'cond-generator': 'generator',
+    'cond-thermal': 'thermal',
+    'cond-power-quality': 'powerQuality',
+    'cond-report': 'report',
+    'cond-solar-panel': 'solarPanel',
+    'cond-monthly': 'monthly',
 };
-const COST_FIELDS = new Set(['cond-monthly-appointment', 'cond-yearly-appointment', 'cond-yearly-maintenance', 'cond-yearly-inspection']);
+const COST_FIELDS = new Set(Object.keys(COND_INPUT_MAP));
 
 Object.entries(COND_INPUT_MAP).forEach(([elId, stateKey]) => {
     const el = document.getElementById(elId);
     if (!el) return;
 
-    // input: strip commas → parse → save override → recalc
     el.addEventListener('input', (e) => {
         const raw = e.target.value.replace(/,/g, '');
         const val = parseFloat(raw);
         if (!isNaN(val)) {
             state.condOverride[stateKey] = val;
-
-            // 월 단가 수정 시 연간 합계 자동 계산 (또는 반대)
-            if (elId === 'cond-monthly-appointment') {
-                state.condOverride.yearlyAppointment = val * 12;
-            } else if (elId === 'cond-yearly-appointment') {
-                state.condOverride.monthlyAppointment = val / 12;
-            }
         } else {
             delete state.condOverride[stateKey];
-            if (elId === 'cond-monthly-appointment') delete state.condOverride.yearlyAppointment;
-            if (elId === 'cond-yearly-appointment') delete state.condOverride.monthlyAppointment;
         }
         calculate();
     });
 
-    // focus: show raw number (no commas) for easier editing
     if (COST_FIELDS.has(elId)) {
         el.addEventListener('focus', (e) => {
             const raw = e.target.value.replace(/,/g, '');
             e.target.value = raw;
         });
-        // blur: reformat with commas
         el.addEventListener('blur', (e) => {
             const raw = parseFloat(e.target.value.replace(/,/g, ''));
             if (!isNaN(raw)) {
@@ -843,13 +551,16 @@ Object.entries(COND_INPUT_MAP).forEach(([elId, stateKey]) => {
     }
 });
 
-document.getElementById('cond-maintenance-frequency').addEventListener('input', (e) => {
-    state.maintenanceFrequency = e.target.value;
-    updateUI();
-});
-document.getElementById('cond-appointment-frequency').addEventListener('input', (e) => {
-    state.appointmentFrequency = e.target.value;
-    updateUI();
+['cap-receiving', 'cap-generation', 'cap-solar', 'cap-other'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) {
+        el.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value.replace(/,/g, '')) || 0;
+            const stateKey = 'cap' + id.split('-')[1].charAt(0).toUpperCase() + id.split('-')[1].slice(1);
+            state[stateKey] = val;
+            calculate();
+        });
+    }
 });
 
 
@@ -859,27 +570,22 @@ document.getElementById('btn-reset-addr').addEventListener('click', () => {
     state.address = "";
     state.customerName = "";
     state.buildingName = "";
-    state.floorArea = 0;
+    state.capReceiving = 0;
+    state.capGeneration = 0;
+    state.capSolar = 0;
+    state.capOther = 0;
     state.purpose = "";
-    state.useAprDay = "";
     state.managerPhone = "";
     state.salesManager = "";
-    state.maintenanceFrequency = "2회";
-    state.appointmentFrequency = "12개월";
     state.condOverride = {};
-    state.itemToggles = { appointment: true, maintenance: true, inspection: true };
-    state._lastConditionArea = -1;
+    state.itemToggles = { lowVoltage: true, highVoltage: true, generator: true, thermal: true, powerQuality: true, report: true, monthly: true };
     _lastBuildingResult = null;
 
     // Form fields reset
-    document.getElementById('customer-name').value = "";
-    document.getElementById('floor-area').value = "";
-    document.getElementById('floor-grade').value = "";
-    document.getElementById('use-apr-day').value = "";
-    document.getElementById('purpose').value = "";
-    document.getElementById('manager').value = "";
-    document.getElementById('manager-phone').value = "";
-    document.getElementById('sales-manager').value = "";
+    ["customer-name", "cap-receiving", "cap-generation", "cap-solar", "cap-other", "purpose", "manager", "manager-phone", "sales-manager"].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = "";
+    });
 
     // Building register UI reset
     document.getElementById('building-result-panel').style.display = 'none';
@@ -895,6 +601,43 @@ document.getElementById('btn-reset-addr').addEventListener('click', () => {
     
     goToStep(1);
 });
+
+// ---- Pill Toggle Group Handler Factory ----
+function initPillToggleGroup(groupId, stateKey, callback) {
+    const group = document.getElementById(groupId);
+    if (!group) return;
+    group.querySelectorAll('.pill-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            group.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const val = btn.dataset.value;
+            state[stateKey] = isNaN(val) ? val : Number(val);
+            if (callback) callback(val);
+            calculate();
+        });
+    });
+}
+
+// 정전 여부
+initPillToggleGroup('toggle-power-outage', 'powerOutage');
+
+// 점검 횟수
+initPillToggleGroup('toggle-inspection-count', 'inspectionCount');
+
+// 월차점검 해당 여부
+initPillToggleGroup('toggle-monthly-applicable', 'monthlyApplicable', (val) => {
+    const row = document.getElementById('row-monthly-count');
+    if (row) row.style.display = (val === '있음') ? 'flex' : 'none';
+    // 없음 선택 시 monthly 토글 자동 off
+    state.itemToggles.monthly = (val === '있음');
+    calculate();
+});
+
+// 월차점검 횟수
+initPillToggleGroup('toggle-monthly-count', 'monthlyCount');
+
+// 점검 범위
+initPillToggleGroup('toggle-inspection-scope', 'inspectionScope');
 
 // Tab Switching (only buttons in #tab-bar)
 document.getElementById('tab-bar').querySelectorAll('.tab-btn').forEach(btn => {
@@ -915,101 +658,119 @@ const PDF_SERVER_URL = (window.location.port === '3000' || window.location.hostn
 
 // ---- Mapping Logic for Export ----
 function generateMapping() {
-    const today = new Date().toISOString().slice(0, 10);
-    const costs = state.results.costs;
-    const subtotal = costs.inspection + costs.maintenance + costs.appointment;
+    const d = state.results.costs;
 
-    // 노임단가 × 투입인원 기반 인건비 산출
-    const inspB = calcLaborBreakdown(state.results.inspectionWorkers, state.results.grade);
-    const maintB = calcLaborBreakdown(state.results.maintenanceWorkers, state.results.grade);
+    const mappingArray = [
+            { name: "견적일", cell: "C6", value: state.estimateDate || "" },
+            { name: "고객명", cell: "C7", value: state.customerName || "" },
+            { name: "영업담당자", cell: "O10", value: state.salesManager || "" },
+            { name: "수전용량", cell: "U13", value: state.capReceiving ? `${state.capReceiving}KVA` : "0KVA" },
+            { name: "발전용량", cell: "U14", value: state.capGeneration ? `${state.capGeneration}KW` : "0KW" },
+            { name: "태양광용량", cell: "U15", value: state.capSolar ? `${state.capSolar}KW` : "0KW" },
+            { name: "기타용량", cell: "U16", value: state.capOther ? `${state.capOther}KW` : "0KW" },
+            { name: "특이사항", cell: "R17", value: state.specialNote || "" },
+            { name: "담당자명", cell: "D47", value: state.manager || "" },
+            { name: "담당자 직함", cell: "", value: state.managerPosition || "" },
+            { name: "거래처 연락처", cell: "", value: state.managerPhone || "" },
+            { name: "담당자 휴대전화", cell: "D48", value: state.managerMobile || "" },
+            { name: "담당자 이메일", cell: "D49", value: state.managerEmail || "" },
 
-    // 선임 산출내역은 견적 조건표 상 투입인원 필드가 별도로 없으나,
-    // "등급별 선임 인원수에 따른 1명"으로 할당을 원하므로, 
-    // 선임 상태(itemToggles.appointment)가 켜져있으면 1명으로 계산합니다.
-    const appWorkers = state.itemToggles.appointment ? 1 : 0;
-    const appB = calcLaborBreakdown(appWorkers, state.results.grade);
+            { name: "현장주소", cell: "D50", value: `${state.address || ""} ${state.addressDetail || ""}`.trim() },
+            { name: "도로명주소", cell: "", value: state.roadAddress || "" },
+            { name: "지번주소", cell: "", value: state.jibunAddress || "" },
+            { name: "우편번호", cell: "", value: state.zonecode || "" },
+            { name: "월차유지관리비", cell: "R21", value: d.monthly || 0 },
+            { name: "저압점검", cell: "R22", value: d.lowVoltage || 0 },
+            { name: "고압점검", cell: "R26", value: d.highVoltage || 0 },
+            { name: "발전점검", cell: "R32", value: d.generator || 0 },
+            { name: "열화상측정", cell: "R35", value: d.thermal || 0 },
+            { name: "품질분석", cell: "R36", value: d.powerQuality || 0 },
+            { name: "보고서작성", cell: "R37", value: d.report || 0 },
+            { name: "태양광발전설비", cell: "R38", value: d.solarPanel || 0 },
+            // 점검 조건 선택 옵션 → 엑셀 E열
+            { name: "정전여부", cell: "E13", value: state.powerOutage || "무정전" },
+            { name: "점검횟수", cell: "E14", value: `${state.inspectionCount || 1}회` },
+            {
+                name: "월차점검",
+                cell: "E15",
+                value: state.monthlyApplicable === "있음"
+                    ? `${state.monthlyCount || 8}회`
+                    : "해당사항 없음"
+            },
+            {
+                name: "점검범위",
+                cell: "E16",
+                value: state.inspectionScope === "배전반+EPS"
+                    ? "수전실내 배전반+EPS실 포함"
+                    : "수전실내 배전반"
+            },
+            // 점검범위 배전반+EPS 선택 시 W22에 특수 문구 삽입
+            {
+                name: "점검범위추가문구",
+                cell: "W22",
+                value: state.inspectionScope === "배전반+EPS"
+                    ? "각층 공용분전반/기계실MCC판넬 포함"
+                    : ""
+            },
+            // U41 = R21(월차) + R22~R38(연차 전 항목) 총합계
+            {
+                name: "총합계",
+                cell: "U41",
+                value: (d.monthly || 0)
+                    + (d.lowVoltage || 0)
+                    + (d.highVoltage || 0)
+                    + (d.generator || 0)
+                    + (d.thermal || 0)
+                    + (d.powerQuality || 0)
+                    + (d.report || 0)
+                    + (d.solarPanel || 0)
+            }
+        ];
 
-    return {
-        "표지": [
-            { name: "고객명", cell: "F10", value: state.customerName }
-        ],
-        "1. 견적서": [
-            { name: "견적일", cell: "E8", value: today },
-            { name: "고객명", cell: "E9", value: state.customerName },
-            { name: "주소", cell: "J15", value: state.address },
-            { name: "사용승인일", cell: "J16", value: state.useAprDay },
-            { name: "주용도", cell: "J17", value: state.purpose },
-            { name: "연면적", cell: "W17", value: state.floorArea },
-            { name: "담당자명", cell: "J18", value: state.manager },
-            { name: "담당자 연락처", cell: "W18", value: state.managerPhone },
-            { name: "영업 담당자", cell: "Q12", value: state.salesManager },
-            { name: "영업 담당자 연락처", cell: "X12", value: state.salesManagerPhone },
-            { name: "성능점검비", cell: "T23", value: costs.inspection },
-            { name: "유지점검비", cell: "T24", value: costs.maintenance },
-            { name: "위탁선임비", cell: "T25", value: costs.appointment },
-            { name: "합계(할인전)", cell: "T26", value: subtotal },
-            { name: "최종 연간 금액", cell: "T27", value: costs.yearly },
-            { name: "월 납부액", cell: "T28", value: costs.monthly },
-            { name: "건물등급", cell: "Y25", value: state.results.grade }
-        ],
-        "2.1 성능점검 산출내역": [
-            { name: "성능 특급 점검인원 수", cell: "E6", value: inspB.rows[0].workers },
-            { name: "성능 고급 점검인원 수", cell: "E7", value: inspB.rows[1].workers },
-            { name: "성능 중급 점검인원 수", cell: "E8", value: inspB.rows[2].workers },
-            { name: "성능 초급 점검인원 수", cell: "E9", value: inspB.rows[3].workers },
-            { name: "성능 특급 점검 노임 단가", cell: "G6", value: inspB.rows[0].wage },
-            { name: "성능 고급 점검 노임 단가", cell: "G7", value: inspB.rows[1].wage },
-            { name: "성능 중급 점검 노임 단가", cell: "G8", value: inspB.rows[2].wage },
-            { name: "성능 초급 점검 노임 단가", cell: "G9", value: inspB.rows[3].wage },
-            { name: "인건비", cell: "H10", value: inspB.labor },
-            { name: "직접경비", cell: "H11", value: inspB.expense },
-            { name: "제경비", cell: "H12", value: inspB.general },
-            { name: "기술료", cell: "H13", value: inspB.tech },
-            { name: "성능 산출합계", cell: "H14", value: inspB.total },
-            { name: "성능 조정금액", cell: "H15", value: costs.inspection - inspB.total },
-            { name: "성능 최종합계", cell: "H17", value: costs.inspection },
-            { name: "투입인력", cell: "O6", value: state.results.inspectionWorkers }
-        ],
-        "2.2 유지점검 산출내역": [
-            { name: "유지 특급 점검인원 수", cell: "E6", value: maintB.rows[0].workers },
-            { name: "유지 고급 점검인원 수", cell: "E7", value: maintB.rows[1].workers },
-            { name: "유지 중급 점검인원 수", cell: "E8", value: maintB.rows[2].workers },
-            { name: "유지 초급 점검인원 수", cell: "E9", value: maintB.rows[3].workers },
-            { name: "유지 특급 점검 노임 단가", cell: "G6", value: maintB.rows[0].wage },
-            { name: "유지 고급 점검 노임 단가", cell: "G7", value: maintB.rows[1].wage },
-            { name: "유지 중급 점검 노임 단가", cell: "G8", value: maintB.rows[2].wage },
-            { name: "유지 초급 점검 노임 단가", cell: "G9", value: maintB.rows[3].wage },
-            { name: "인건비", cell: "H10", value: maintB.labor },
-            { name: "직접경비", cell: "H11", value: maintB.expense },
-            { name: "제경비", cell: "H12", value: maintB.general },
-            { name: "기술료", cell: "H13", value: maintB.tech },
-            { name: "유지 산출합계", cell: "H14", value: maintB.total },
-            { name: "유지 조정금액", cell: "H15", value: costs.maintenance - maintB.total },
-            { name: "유지 최종합계", cell: "H17", value: costs.maintenance },
-            { name: "투입인력", cell: "O6", value: state.results.maintenanceWorkers }
-        ],
-        "2.3 선임 산출내역": [
-            { name: "선임 특급 점검인원 수", cell: "E6", value: appB.rows[0].workers },
-            { name: "선임 고급 점검인원 수", cell: "E7", value: appB.rows[1].workers },
-            { name: "선임 중급 점검인원 수", cell: "E8", value: appB.rows[2].workers },
-            { name: "선임 초급 점검인원 수", cell: "E9", value: appB.rows[3].workers },
-            { name: "선임 특급 점검 노임 단가", cell: "G6", value: appB.rows[0].wage },
-            { name: "선임 고급 점검 노임 단가", cell: "G7", value: appB.rows[1].wage },
-            { name: "선임 중급 점검 노임 단가", cell: "G8", value: appB.rows[2].wage },
-            { name: "선임 초급 점검 노임 단가", cell: "G9", value: appB.rows[3].wage },
-            { name: "인건비", cell: "H10", value: appB.labor },
-            { name: "직접경비", cell: "H11", value: appB.expense },
-            { name: "제경비", cell: "H12", value: appB.general },
-            { name: "기술료", cell: "H13", value: appB.tech },
-            { name: "산출합계", cell: "H14", value: appB.total },
-            { name: "조정금액", cell: "H15", value: costs.appointment - appB.total },
-            { name: "최종합계", cell: "H17", value: costs.appointment },
-            { name: "투입인력", cell: "O6", value: 0 }
-        ],
-        "4. 성능점검 수량내역": [
-            { name: "조정계수", cell: "F4", value: state.results.coef }
-        ]
-    };
+    // ---- 점검 횟수 및 토글 조건에 따른 동그라미 표기 삭제 로직 ----
+    let clearCells = [];
+
+    if (state.inspectionCount === 1) {
+        // 1회: K23~K37, L23~L37, M23~M37 삭제
+        for (let r = 23; r <= 37; r++) {
+            clearCells.push(`K${r}`, `L${r}`, `M${r}`);
+        }
+    } else if (state.inspectionCount === 2) {
+        // 2회: K23~K37, M23~M37 삭제 (L은 유지)
+        for (let r = 23; r <= 37; r++) {
+            clearCells.push(`K${r}`, `M${r}`);
+        }
+    }
+
+    if (!state.itemToggles.lowVoltage) {
+        [23, 24, 25].forEach(r => clearCells.push(`K${r}`, `L${r}`, `M${r}`, `N${r}`));
+    }
+    if (!state.itemToggles.highVoltage) {
+        [27, 28, 30].forEach(r => clearCells.push(`K${r}`, `L${r}`, `M${r}`, `N${r}`));
+    }
+    if (!state.itemToggles.generator) {
+        [32, 33, 34].forEach(r => clearCells.push(`K${r}`, `L${r}`, `M${r}`, `N${r}`));
+    }
+    if (!state.itemToggles.thermal) {
+        clearCells.push('K35', 'L35', 'M35', 'N35');
+    }
+    if (!state.itemToggles.powerQuality) {
+        clearCells.push('K36', 'L36', 'M36', 'N36');
+    }
+    if (!state.itemToggles.report) {
+        clearCells.push('K37', 'L37', 'M37', 'N37');
+    }
+    if (!state.itemToggles.solarPanel) {
+        [38, 39, 40].forEach(r => clearCells.push(`K${r}`, `L${r}`, `M${r}`, `N${r}`));
+    }
+
+    // 중복 제거 후 빈 문자열("") 매핑
+    const uniqueClearCells = [...new Set(clearCells)];
+    uniqueClearCells.forEach(cell => {
+        mappingArray.push({ name: `Clear_${cell}`, cell: cell, value: "" });
+    });
+
+    return { "견적서": mappingArray };
 }
 
 // ---- 상태 표시 헬퍼 ----
@@ -1043,54 +804,15 @@ document.getElementById('btn-save-pdf').addEventListener('click', async () => {
     const mapping = generateMapping();
     const btn = document.getElementById('btn-save-pdf');
 
-    // 연면적 유효성 검사
-    if (!state.floorArea || state.floorArea < 5000) {
-        showStatusBar('⚠️ 연면적을 먼저 입력해주세요. (5,000㎡ 이상)', 'warning');
-        return;
-    }
-
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 처리 중...';
-    showStatusBar('<i class="fas fa-spinner fa-spin"></i> 에어테이블 저장 중...', 'info');
-
-    // ── Step 1: 에어테이블 저장 먼저 (quotationId 확보) ──────────────────────
-    let airOk = false;
-    let quotationId = null;
-    let airErrMsg = '';
-
-    try {
-        const airResult = await window.airtableService.saveQuotation(state);
-        airOk = true;
-        quotationId = airResult.quotationId;
-
-        // 관리자 도구 최근 기록 링크 업데이트
-        if (quotationId) {
-            const recordUrl = `https://airtable.com/appFEZaTg3yZU1QwW/tbloif1mheDqaRRuR/${quotationId}`;
-            const recentEl = document.getElementById('status-recent-record');
-            if (recentEl) {
-                recentEl.innerHTML = `<a href="${recordUrl}" target="_blank" style="color:var(--toss-blue); font-weight:600; text-decoration:none;">보기 <i class="fas fa-external-link-alt" style="font-size:0.75rem;"></i></a>`;
-            }
-        }
-    } catch (err) {
-        airErrMsg = err.message || '알 수 없는 오류';
-        console.error('[Airtable]', err);
-    }
-
-    // ── Step 2: PDF 생성 & 다운로드 (airtableInfo 포함 → 서버에서 Airtable 업로드까지) ──
-    showStatusBar('<i class="fas fa-spinner fa-spin"></i> PDF 생성 중... (약 10초)', 'info');
+    showStatusBar('<i class="fas fa-spinner fa-spin"></i> PDF 생성 및 서버 동기화 중... (약 10~15초)', 'info');
 
     let pdfOk = false;
     let fileName = `${state.customerName || '견적서'}_견적서.pdf`;
 
     try {
-        // airtableInfo가 있으면 서버에서 PDF 생성 후 Airtable에 자동 업로드
         const pdfBody = { ...mapping };
-        if (quotationId) {
-            pdfBody.airtableInfo = {
-                baseId: 'appFEZaTg3yZU1QwW',
-                recordId: quotationId
-            };
-        }
 
         const pdfRes = await fetch(PDF_SERVER_URL, {
             method: 'POST',
@@ -1100,15 +822,19 @@ document.getElementById('btn-save-pdf').addEventListener('click', async () => {
 
         if (!pdfRes.ok) {
             const errData = await pdfRes.json().catch(() => ({ error: pdfRes.statusText }));
-            throw new Error(errData.error || `PDF 서버 오류 (${pdfRes.status})`);
+            throw new Error(errData.error || `서버 오류 (${pdfRes.status})`);
         }
 
         const blob = await pdfRes.blob();
         const disposition = pdfRes.headers.get('Content-Disposition') || '';
-        const nameMatch = disposition.match(/filename\*=UTF-8''([^;]+)/);
-        fileName = nameMatch ? decodeURIComponent(nameMatch[1]) : fileName;
+        
+        // 파일명 추출 (표준 filename* 및 일반 filename 모두 대응)
+        const nameMatch = disposition.match(/filename\*=UTF-8''([^;]+)/) || disposition.match(/filename="?([^";]+)"?/);
+        if (nameMatch) {
+            fileName = decodeURIComponent(nameMatch[1].replace(/['"]/g, ''));
+        }
 
-        // 다운로드 트리거 (모바일에서 실패해도 throw 하지 않음)
+        // 다운로드 트리거
         try {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -1124,22 +850,16 @@ document.getElementById('btn-save-pdf').addEventListener('click', async () => {
         pdfOk = true;
     } catch (pdfErr) {
         console.error('[PDF]', pdfErr);
+        showStatusBar(`❌ 오류 발생: ${pdfErr.message}`, 'error');
     }
 
-    // ── 최종 상태 메시지 ──────────────────────────────────────────────────────
-    if (pdfOk && airOk) {
-        showStatusBar(`✅ <b>${fileName}</b> 다운로드 및 에어테이블 저장 성공!`, 'success');
-    } else if (pdfOk && !airOk) {
-        showStatusBar(`✅ PDF 다운로드 완료 — 에어테이블 저장 실패: ${airErrMsg}`, 'warning');
-    } else if (!pdfOk && airOk) {
-        showStatusBar(`⚠️ 에어테이블 저장 성공 — PDF 생성 실패 (서버 확인 필요)`, 'warning');
-    } else {
-        showStatusBar(`❌ 에어테이블 저장 실패: ${airErrMsg}`, 'error');
+    if (pdfOk) {
+        showStatusBar(`✅ <b>${fileName}</b> 완료! (에어테이블 자동 동기화 적용됨)`, 'success');
     }
 
-    btn.innerHTML = '<i class="fas fa-check-circle"></i> 견적서 발행 완료';
+    btn.innerHTML = '<i class="fas fa-check-circle"></i> 처리 완료';
     setTimeout(() => {
-        btn.innerHTML = '<i class="fas fa-file-pdf"></i> 견적서 PDF 생성 및 저장';
+        btn.innerHTML = '<i class="fas fa-file-pdf"></i> 견적서 PDF 생성 및 자동 저장';
         btn.disabled = false;
     }, 3000);
 });
@@ -1269,22 +989,11 @@ document.querySelectorAll('.btn-adj').forEach(btn => {
         const stateKey = COND_INPUT_MAP[targetId];
         if (!stateKey) return;
 
-        // 현재 값 가져오기 (lookupCondition의 기본값 또는 현재 override된 값)
-        const area = state.floorArea || 0;
-        if (area < 5000) return;
-        const condition = lookupCondition(area);
-        const currentVal = state.condOverride[stateKey] ?? condition[stateKey];
+        const base = window.CONSTANTS.JIGMU_BASE_PRICES;
+        const currentVal = state.condOverride[stateKey] ?? base[stateKey];
 
-        // 새로운 값 계산 (0 미만 방지)
         const newVal = Math.max(0, currentVal + adj);
         state.condOverride[stateKey] = newVal;
-
-        // 연동 로직 (월/연간 단가)
-        if (targetId === 'cond-monthly-appointment') {
-            state.condOverride.yearlyAppointment = newVal * 12;
-        } else if (targetId === 'cond-yearly-appointment') {
-            state.condOverride.monthlyAppointment = newVal / 12;
-        }
 
         calculate();
     });
@@ -1329,9 +1038,9 @@ window.goToStep = function(step) {
         }
     }
     if (step === 3 && currentStep === 2) {
-        if (!state.floorArea || state.floorArea < 5000) {
-            alert("연면적이 부족하거나 입력되지 않았습니다. (최소 5,000㎡)");
-            return;
+        if (!state.results.totalCapacity) {
+            // alert("설비 용량을 입력해주세요."); 
+            // return;
         }
     }
 

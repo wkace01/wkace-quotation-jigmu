@@ -3,29 +3,19 @@
 // 카카오 주소 검색 및 건축물대장 API 공통 유틸리티
 // ============================================================================
 
-const JUSO_API_KEY = "U01TX0FVVEgyMDI1MTAxMDExNDkyNjExNjMxMTY=";
-const BUILDING_API_KEY = "a80d7fbe3842d32f845889a352543d38fde0cf1625508e615c3fbf5705d36578";
+const API_BASE_URL = (window.location.port === '3000' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:3001'
+    : '';
 
 /**
  * 1. 도로명주소 API로 지번 정보(행정코드, 번지) 반환
  */
 async function getAddressInfo(keyword) {
-    const url = `https://www.juso.go.kr/addrlink/addrLinkApi.do?confmKey=${JUSO_API_KEY}&currentPage=1&countPerPage=5&keyword=${encodeURIComponent(keyword)}&resultType=json`;
+    const url = `${API_BASE_URL}/api/address-info?keyword=${encodeURIComponent(keyword)}`;
     const res = await fetch(url);
     const data = await res.json();
-    const common = data.results?.common;
-    if (common?.errorCode !== '0') throw new Error(common?.errorMessage || '주소 API 오류');
-    const juso = data.results?.juso?.[0];
-    if (!juso) throw new Error('검색된 주소가 없습니다.');
-    const admCd = juso.admCd || '';
-    return {
-        sigunguCd: admCd.substring(0, 5),
-        bjdongCd: admCd.substring(5),
-        bun: juso.lnbrMnnm || '',
-        ji: juso.lnbrSlno || '0',
-        roadAddr: juso.roadAddr,
-        jibunAddr: juso.jibunAddr
-    };
+    if (!res.ok) throw new Error(data.error || '주소 API 오류');
+    return data;
 }
 
 /**
@@ -33,41 +23,12 @@ async function getAddressInfo(keyword) {
  */
 async function fetchBuildingRegister(info) {
     const { sigunguCd, bjdongCd, bun, ji } = info;
-    const paddedBun = bun.padStart(4, '0');
-    const paddedJi = ji.padStart(4, '0');
-    // HTTPS 및 XML 응답을 지원하는 Hub EndPoint 사용
-    const url = `https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo?serviceKey=${BUILDING_API_KEY}&sigunguCd=${sigunguCd}&bjdongCd=${bjdongCd}&bun=${paddedBun}&ji=${paddedJi}&numOfRows=100&pageNo=1`;
-
+    const params = new URLSearchParams({ sigunguCd, bjdongCd, bun, ji: ji || '0' });
+    const url = `${API_BASE_URL}/api/building-register?${params.toString()}`;
     const res = await fetch(url);
-    const xmlText = await res.text();
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-
-    const totalCount = parseInt(xmlDoc.getElementsByTagName('totalCount')[0]?.textContent || '0');
-    if (totalCount === 0) throw new Error('해당 지번에 건축물대장 정보가 없습니다.');
-
-    const items = xmlDoc.getElementsByTagName('item');
-    const arr = Array.from(items);
-
-    // 주건축물(mainAtchGbCd === '0') 우선 선택
-    let target = arr.find(item => {
-        const gbCd = item.getElementsByTagName('mainAtchGbCd')[0]?.textContent;
-        return gbCd === '0';
-    });
-    if (!target) target = items[0];
-
-    const getVal = (tag) => target.getElementsByTagName(tag)[0]?.textContent?.trim() || '';
-
-    // 기존 app.js에서 사용하던 공통 필드 객체 형태로 반환
-    return {
-        totArea: getVal('totArea'),
-        mainPurpsCdNm: getVal('mainPurpsCdNm'),
-        platArea: getVal('platArea'),
-        archArea: getVal('archArea'),
-        useAprDay: getVal('useAprDay'),
-        bldNm: getVal('bldNm'),
-        mainAtchGbCdNm: getVal('mainAtchGbCdNm')
-    };
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '건축물대장 API 오류');
+    return data;
 }
 
 /**

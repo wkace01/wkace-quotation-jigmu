@@ -714,3 +714,44 @@ body, .stat-label, .stat-value, .data-table td, .data-table th, .cond-label, .ca
     }
 }
 
+
+/* ---- Pill Toggle Group (점검 조건 선택) ---- */
+.pill-toggle-group {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.pill-btn {
+    padding: 0.4rem 0.9rem;
+    border-radius: 100px;
+    border: 1.5px solid var(--toss-border);
+    background: var(--toss-input-bg);
+    color: var(--toss-text-sub);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+}
+
+.pill-btn:hover {
+    border-color: var(--toss-blue);
+    color: var(--toss-blue);
+}
+
+.pill-btn.active {
+    background: var(--toss-blue);
+    border-color: var(--toss-blue);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(49, 130, 246, 0.25);
+}
+
+.pill-btn:active {
+    transform: scale(0.96);
+}
+
+@media (max-width: 500px) {
+    .pill-toggle-group { gap: 0.25rem; }
+    .pill-btn { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
+}
