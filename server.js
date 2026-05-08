@@ -4,7 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const XlsxPopulate = require('xlsx-populate');
 const { JSDOM } = require('jsdom');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -32,6 +32,51 @@ app.use(express.static(path.join(__dirname, 'public')));
 // 임시 폴더 생성
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function toLibreOfficeFileUrl(filePath) {
+    const normalized = path.resolve(filePath).replace(/\\/g, '/');
+    const prefix = normalized.startsWith('/') ? 'file://' : 'file:///';
+    return prefix + encodeURI(normalized);
+}
+
+async function waitForFile(filePath, timeoutMs = 15000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        if (fs.existsSync(filePath)) return true;
+        await sleep(250);
+    }
+    return fs.existsSync(filePath);
+}
+
+async function convertXlsxToPdf(xlsxPath, outputDir, expectedPdfPath, timestamp) {
+    const userProfileDir = path.join(TEMP_DIR, `lo_profile_${timestamp}`);
+    fs.mkdirSync(userProfileDir, { recursive: true });
+
+    try {
+        execFileSync(SOFFICE_PATH, [
+            `-env:UserInstallation=${toLibreOfficeFileUrl(userProfileDir)}`,
+            '--headless',
+            '--nologo',
+            '--nofirststartwizard',
+            '--nolockcheck',
+            '--convert-to',
+            'pdf',
+            '--outdir',
+            outputDir,
+            xlsxPath
+        ], { timeout: 90000, stdio: 'pipe' });
+
+        if (!(await waitForFile(expectedPdfPath))) {
+            throw new Error('PDF conversion finished, but the PDF file was not created in time.');
+        }
+    } finally {
+        try { fs.rmSync(userProfileDir, { recursive: true, force: true }); } catch { }
+    }
 }
 
 function requireEnv(name, label) {
@@ -158,9 +203,9 @@ app.post('/generate-pdf', async (req, res) => {
         }
 
         await workbook.toFileAsync(tempXlsx);
-        execSync(`"${SOFFICE_PATH}" --headless --convert-to pdf --outdir "${TEMP_DIR}" "${tempXlsx}"`, { timeout: 90000 });
+        await convertXlsxToPdf(tempXlsx, TEMP_DIR, expectedPdf, timestamp);
 
-        // 1. PDF 먼저 생성됨 (위 execSync 에 의해)
+        // 1. PDF 먼저 생성됨 (위 convertXlsxToPdf 에 의해)
         if (!fs.existsSync(expectedPdf)) throw new Error('PDF 변환 실패');
 
         const getFieldValue = (fieldName, defaultValue = '') => {
@@ -277,7 +322,7 @@ app.post('/upload-pdf-to-airtable', async (req, res) => {
             }
         }
         await workbook.toFileAsync(tempXlsx);
-        execSync(`"${SOFFICE_PATH}" --headless --convert-to pdf --outdir "${TEMP_DIR}" "${tempXlsx}"`, { timeout: 90000 });
+        await convertXlsxToPdf(tempXlsx, TEMP_DIR, expectedPdf, timestamp);
 
         if (!fs.existsSync(expectedPdf)) throw new Error('PDF 생성 실패');
 
