@@ -223,61 +223,52 @@ app.post('/generate-pdf', async (req, res) => {
         const customerName = getFieldValue('고객명', '견적서');
         const salesManager = getFieldValue('영업담당자', '담당자미상');
 
-        // 2. 에어테이블 자동 데이터 삽입 파이프라인
-        let dynamicAirtableInfo = airtableInfo;
-        let quoteDisplayId = 'ID_미정'; // 파일명 표시용 ID
-        try {
-            const { syncToAirtable } = require('./airtableHandler');
-            const syncResult = await syncToAirtable(actualData);
-            if (syncResult) {
-                quoteDisplayId = syncResult.quoteUniqueId || syncResult.quoteId; // 고유 ID 필드 우선 사용
-                dynamicAirtableInfo = {
-                    baseId: syncResult.baseId,
-                    recordId: syncResult.quoteId // 실제 Airtable 업로드에는 레코드 ID(rec...) 필요
-                };
-            }
-        } catch (syncErr) {
-            console.error('❌ 에어테이블 동기화 단계 오류:', syncErr);
-        }
-
-        const fileName = `${quoteDisplayId}_직무고시견적서_${customerName}_${salesManager}.pdf`;
+        // 브라우저 다운로드 파일명 (quoteId 없이 즉시 전송 — ID는 Airtable 첨부 파일명에만 포함)
+        const fileName = `직무고시견적서_${customerName}_${salesManager}.pdf`;
 
         res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
         res.setHeader('Content-Type', 'application/pdf');
 
-        // PDF를 클라이언트에 전송
-        res.sendFile(expectedPdf, {}, (sendErr) => {
+        // PDF를 클라이언트에 즉시 전송 (Railway 30초 타임아웃 해소)
+        // Airtable 동기화는 전송 완료 후 백그라운드에서 실행
+        res.sendFile(expectedPdf, {}, async (sendErr) => {
             if (sendErr && !sendErr.message.includes('ECONNRESET')) {
                 console.error('❌ PDF 전송 오류:', sendErr.message);
             }
 
-            // Airtable 업로드 (서버 내부 fire-and-forget, 클라이언트 응답과 무관)
-            if (dynamicAirtableInfo && dynamicAirtableInfo.recordId) {
-                const token = process.env.AIRTABLE_API_KEY;
-                if (token && fs.existsSync(expectedPdf)) {
-                    const pdfBuffer = fs.readFileSync(expectedPdf);
-                    const base64Pdf = pdfBuffer.toString('base64');
-                    // 실제 확인된 '견적서 PDF'의 필드 ID
-                    const fieldId = 'fldMmmPZDEHRqLfbZ'; 
-                    // 단, content.airtable.com 업로드 API는 비공식임.
-                    // 공식 REST API (PATCH) 를 쓸 수 없기 때문에 비공식 API 유지함.
-                    const uploadUrl = `https://content.airtable.com/v0/${dynamicAirtableInfo.baseId}/${dynamicAirtableInfo.recordId}/${fieldId}/uploadAttachment`;
-
-                    fetch(uploadUrl, {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ contentType: 'application/pdf', file: base64Pdf, filename: fileName })
-                    })
-                    .then(r => r.ok
-                        ? console.log(`✅ Airtable PDF 업로드 성공: ${fileName}`)
-                        : r.json().then(e => console.error('❌ Airtable PDF 업로드 실패:', e?.error?.message || e))
-                    )
-                    .catch(e => console.error('❌ Airtable PDF 업로드 네트워크 오류:', e.message))
-                    .finally(() => cleanup(tempXlsx, expectedPdf));
+            // 백그라운드: Airtable 동기화 → PDF 첨부 업로드 → cleanup
+            try {
+                const { syncToAirtable } = require('./airtableHandler');
+                const syncResult = await syncToAirtable(actualData);
+                if (syncResult) {
+                    const quoteDisplayId = syncResult.quoteUniqueId || syncResult.quoteId;
+                    const airtableFileName = `${quoteDisplayId}_직무고시견적서_${customerName}_${salesManager}.pdf`;
+                    const token = process.env.AIRTABLE_API_KEY;
+                    if (token && fs.existsSync(expectedPdf)) {
+                        const pdfBuffer = fs.readFileSync(expectedPdf);
+                        const base64Pdf = pdfBuffer.toString('base64');
+                        // content.airtable.com 업로드 API는 비공식이나 공식 PATCH로 첨부 불가하여 유지
+                        const fieldId = 'fldMmmPZDEHRqLfbZ';
+                        const uploadUrl = `https://content.airtable.com/v0/${syncResult.baseId}/${syncResult.quoteId}/${fieldId}/uploadAttachment`;
+                        fetch(uploadUrl, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ contentType: 'application/pdf', file: base64Pdf, filename: airtableFileName })
+                        })
+                        .then(r => r.ok
+                            ? console.log(`✅ Airtable PDF 업로드 성공: ${airtableFileName}`)
+                            : r.json().then(e => console.error('❌ Airtable PDF 업로드 실패:', e?.error?.message || e))
+                        )
+                        .catch(e => console.error('❌ Airtable PDF 업로드 네트워크 오류:', e.message))
+                        .finally(() => cleanup(tempXlsx, expectedPdf));
+                    } else {
+                        cleanup(tempXlsx, expectedPdf);
+                    }
                 } else {
                     cleanup(tempXlsx, expectedPdf);
                 }
-            } else {
+            } catch (syncErr) {
+                console.error('❌ 에어테이블 동기화 단계 오류:', syncErr);
                 cleanup(tempXlsx, expectedPdf);
             }
         });
