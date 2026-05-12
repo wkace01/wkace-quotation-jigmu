@@ -770,7 +770,10 @@ function generateMapping() {
         mappingArray.push({ name: `Clear_${cell}`, cell: cell, value: "" });
     });
 
-    return { "견적서": mappingArray };
+    return {
+        "직무 표지": [],
+        "견적서": mappingArray
+    };
 }
 
 // ---- 상태 표시 헬퍼 ----
