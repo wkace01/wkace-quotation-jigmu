@@ -138,10 +138,25 @@ app.get('/api/building-register', async (req, res) => {
         const key = requireEnv('BUILDING_API_KEY', '건축물대장 API 키');
         const paddedBun = String(bun).padStart(4, '0');
         const paddedJi = String(ji).padStart(4, '0');
-        const url = `https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo?serviceKey=${encodeURIComponent(key)}&sigunguCd=${encodeURIComponent(sigunguCd)}&bjdongCd=${encodeURIComponent(bjdongCd)}&bun=${paddedBun}&ji=${paddedJi}&numOfRows=100&pageNo=1`;
+        // serviceKey는 data.go.kr 발급 시 이미 URL 인코딩된 값이므로 encodeURIComponent 없이 직접 삽입
+        const url = `https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo?serviceKey=${key}&sigunguCd=${encodeURIComponent(sigunguCd)}&bjdongCd=${encodeURIComponent(bjdongCd)}&bun=${paddedBun}&ji=${paddedJi}&numOfRows=100&pageNo=1`;
 
         const apiRes = await fetch(url);
-        const xmlText = await apiRes.text();
+        const rawText = await apiRes.text();
+
+        if (!apiRes.ok) {
+            console.error(`❌ 건축물대장 API HTTP 오류 (${apiRes.status}):`, rawText.slice(0, 300));
+            return res.status(502).json({ error: `건축물대장 API 오류 (HTTP ${apiRes.status})` });
+        }
+
+        // BOM 및 루트 노드 앞 공백 제거 후 XML 파싱
+        const xmlText = rawText.replace(/^﻿/, '').trimStart();
+
+        if (!xmlText.startsWith('<')) {
+            console.error('❌ 건축물대장 API 응답이 XML 형식이 아님:', xmlText.slice(0, 300));
+            return res.status(502).json({ error: '건축물대장 API가 유효하지 않은 응답을 반환했습니다.' });
+        }
+
         const dom = new JSDOM(xmlText, { contentType: 'text/xml' });
         const xmlDoc = dom.window.document;
 
