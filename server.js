@@ -195,8 +195,9 @@ app.post('/generate-pdf', async (req, res) => {
     const expectedPdf = tempXlsx.replace('.xlsx', '.pdf');
 
     try {
-        const { templateName, outputSheets, data, airtableInfo } = req.body;
+        const { templateName, outputSheets, data, airtableInfo, _meta } = req.body;
         const actualData = data || req.body;
+        const managementCompany = _meta?.managementCompany || '';
         const actualTemplate = templateName || '직무고시 견적서 양식.xlsx';
         const actualSheets = outputSheets || Object.keys(actualData);
 
@@ -254,7 +255,7 @@ app.post('/generate-pdf', async (req, res) => {
             // 백그라운드: Airtable 동기화 → PDF 첨부 업로드 → cleanup
             try {
                 const { syncToAirtable } = require('./airtableHandler');
-                const syncResult = await syncToAirtable(actualData);
+                const syncResult = await syncToAirtable(actualData, { managementCompany });
                 if (syncResult) {
                     const quoteDisplayId = syncResult.quoteUniqueId || syncResult.quoteId;
                     const airtableFileName = `${quoteDisplayId}_직무고시견적서_${customerName}_${salesManager}.pdf`;

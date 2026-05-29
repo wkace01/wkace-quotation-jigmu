@@ -207,7 +207,7 @@ async function createQuote(fields) {
 }
 
 // ─── 메인 파이프라인: JSON 데이터(mapping) → Airtable 저장 ───────────────────
-async function syncToAirtable(data) {
+async function syncToAirtable(data, meta = {}) {
     if (!AIRTABLE_API_KEY || !BASE_ID) {
         console.warn('⚠️ 에어테이블 연동 생략: 환경변수 AIRTABLE_API_KEY 또는 AIRTABLE_BASE_ID 가 없습니다.');
         return null;
@@ -302,6 +302,9 @@ async function syncToAirtable(data) {
         [QUOTE_FIELDS.보고서작성]:      parseNumber(flatMapping['보고서작성']),
         [QUOTE_FIELDS.태양광발전설비]:  parseNumber(flatMapping['태양광발전설비']),
     };
+    // 관리회사명: 웹 폼 입력값 (Excel 셀에 없으므로 meta로 전달받음)
+    // singleSelect — typecast:true 로 신규 옵션 자동 생성
+    if (meta.managementCompany) quoteFields[QUOTE_FIELDS.관리회사명] = meta.managementCompany;
 
     // 추가 점검범위 (multipleSelects)
     if (flatMapping['점검범위추가문구']) {

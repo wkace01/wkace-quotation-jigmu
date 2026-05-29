@@ -825,6 +825,8 @@ document.getElementById('btn-save-pdf').addEventListener('click', async () => {
 
     try {
         const pdfBody = { ...mapping };
+        // 관리회사명: Excel 셀에 없는 값이므로 별도 메타 필드로 전달
+        if (state.managementCompany) pdfBody._meta = { managementCompany: state.managementCompany };
 
         const pdfRes = await fetch(PDF_SERVER_URL, {
             method: 'POST',
