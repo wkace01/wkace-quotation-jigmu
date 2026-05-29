@@ -147,7 +147,7 @@ window.airtableService = {
      * 4. 견적 기록 생성 (Proxy 사용)
      */
     createQuotation: async (customerId, state) => {
-        const { results, salesManager, itemToggles, maintenanceFrequency, appointmentFrequency } = state;
+        const { results, salesManager, managementCompany, itemToggles, maintenanceFrequency, appointmentFrequency } = state;
         
         const serviceTypes = [];
         if (itemToggles.inspection)  serviceTypes.push('성능');
@@ -166,6 +166,8 @@ window.airtableService = {
         if (serviceTypes.length > 0) fields['서비스 유형'] = serviceTypes;
         // 영업 담당자: null 전송 금지 (링크드 필드 422 원인)
         if (salesManager) fields['영업 담당자'] = salesManager;
+        // 관리회사명: singleSelect — 값 있을 때만 추가 (typecast:true로 신규 옵션 자동 생성)
+        if (managementCompany) fields['fldJ4UxVHEkHNNHK6'] = managementCompany;
         // 점검/선임 횟수: 해당 서비스 활성 시만 추가
         if (itemToggles.maintenance) fields['유지 점검 횟수'] = maintenanceFrequency || '2회';
         if (itemToggles.appointment) fields['위탁 선임 횟수'] = appointmentFrequency || '12개월';
