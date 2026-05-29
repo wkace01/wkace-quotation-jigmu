@@ -26,6 +26,7 @@ const state = {
     managerEmail: "",
     salesManager: "",
     salesManagerPhone: "",
+    managementCompany: "",
     selectedEquipments: new Set(),
     condOverride: {},         // 사용자가 수정한 조건표 값 { key: value }
     itemToggles: {
@@ -489,6 +490,11 @@ if (smPhoneEl) {
     });
 }
 
+// 관리회사명
+document.getElementById('management-company')?.addEventListener('input', (e) => {
+    state.managementCompany = e.target.value;
+});
+
 // 견적일 설정 및 변경 감지
 const estDateEl = document.getElementById('estimate-date');
 if (estDateEl) {
@@ -577,6 +583,7 @@ document.getElementById('btn-reset-addr').addEventListener('click', () => {
     state.purpose = "";
     state.managerPhone = "";
     state.salesManager = "";
+    state.managementCompany = "";
     state.condOverride = {};
     state.itemToggles = { lowVoltage: true, highVoltage: true, generator: true, thermal: true, powerQuality: true, report: true, monthly: true };
     _lastBuildingResult = null;
@@ -586,6 +593,8 @@ document.getElementById('btn-reset-addr').addEventListener('click', () => {
         const el = document.getElementById(id);
         if(el) el.value = "";
     });
+    const mgmtCompanyInput = document.getElementById('management-company');
+    if (mgmtCompanyInput) mgmtCompanyInput.value = '';
 
     // Building register UI reset
     document.getElementById('building-result-panel').style.display = 'none';
