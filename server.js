@@ -402,6 +402,17 @@ app.use('/airtable-proxy', async (req, res) => {
 });
 
 /**
+ * ── GET /api/public-config ──────────────────────────────────────── (브라우저용 공개 설정)
+ * 한국 정부 API는 Railway 서버에서 접근 불가(해외 IP 차단)이므로 브라우저가 직접 호출한다.
+ * Airtable 키는 포함하지 않는다.
+ */
+app.get('/api/public-config', (req, res) => {
+    res.json({
+        buildingApiKey: process.env.BUILDING_API_KEY || ''
+    });
+});
+
+/**
  * ── GET /health ─────────────────────────────────────────────────── (상태 체크)
  */
 app.get('/health', (req, res) => {

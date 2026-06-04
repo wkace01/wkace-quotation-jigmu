@@ -254,12 +254,27 @@ async function fetchBuildingInfo() {
     statusEl.style.display = 'block';
     statusEl.style.background = '#f0f9ff';
     statusEl.style.color = '#0369a1';
-    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 주소 변환 및 건축물대장 API 호출 중...';
+    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 건축물대장 API 조회 중...';
     panelEl.style.display = 'none';
 
     try {
-        const addrInfo = await window.wkCommon.getAddressInfo(state.address);
-        const target = await window.wkCommon.fetchBuildingRegister(addrInfo);
+        // Kakao Postcode가 반환한 bcode(법정동코드 10자리)로 건축물대장 직접 조회
+        // juso.go.kr 서버 프록시 불필요 — 브라우저(한국 IP)에서 직접 호출
+        const sigunguCd = (state.bcode || '').slice(0, 5);
+        const bjdongCd = (state.bcode || '').slice(5);
+
+        // jibunAddress 에서 지번 번호 추출 (예: "서울 강남구 역삼동 123-4" → 본번 123, 부번 4)
+        let bun = '', ji = '0';
+        if (state.jibunAddress) {
+            const m = state.jibunAddress.match(/(\d+)(?:-(\d+))?\s*$/);
+            if (m) { bun = m[1]; ji = m[2] || '0'; }
+        }
+
+        if (!sigunguCd || !bun) {
+            throw new Error('주소 정보가 부족합니다. 카카오 주소 검색을 다시 이용해 주세요.');
+        }
+
+        const target = await window.wkCommon.fetchBuildingRegister({ sigunguCd, bjdongCd, bun, ji });
 
         // 공통 반환 스키마에 맞춰 화면 매핑을 위한 형태 가공
         const sumMainArea = parseFloat(target.totArea || 0);
@@ -321,6 +336,7 @@ function initKakaoSearch() {
             state.roadAddress = data.roadAddress || roadAddr; // 표준 도로명 우선 저장
             state.jibunAddress = data.jibunAddress || data.autoJibunAddress || '';
             state.zonecode = data.zonecode || '';
+            state.bcode = data.bcode || ''; // 법정동코드 10자리 (건축물대장 조회에 사용)
         }
 
         // Proceed to Step 2 automatically
