@@ -262,7 +262,16 @@ app.post('/generate-pdf', async (req, res) => {
                         if (found && found.value) { totalAmount = found.value; break; }
                     }
                 } catch {}
-                notifyQuoteSent({ manager: salesManager, customerName, totalAmount }).catch(() => {});
+                const meta = _meta || {};
+                const capParts = [];
+                if (meta.capReceiving)  capParts.push(`수전 ${meta.capReceiving}KVA`);
+                if (meta.capGeneration) capParts.push(`발전 ${meta.capGeneration}KW`);
+                if (meta.capSolar)      capParts.push(`태양광 ${meta.capSolar}KW`);
+                if (meta.capOther)      capParts.push(`기타 ${meta.capOther}KW`);
+                const capacityLabel = capParts.length
+                    ? `${(meta.totalCapacity || 0).toLocaleString('ko-KR')}kW (${capParts.join(' / ')})`
+                    : null;
+                notifyQuoteSent({ manager: salesManager, customerName, totalAmount, serviceItems: capacityLabel }).catch(() => {});
             }
 
             // 백그라운드: Airtable 동기화 → PDF 첨부 업로드 → cleanup
