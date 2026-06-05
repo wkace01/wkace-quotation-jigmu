@@ -841,8 +841,15 @@ document.getElementById('btn-save-pdf').addEventListener('click', async () => {
 
     try {
         const pdfBody = { ...mapping };
-        // 관리회사명: Excel 셀에 없는 값이므로 별도 메타 필드로 전달
-        if (state.managementCompany) pdfBody._meta = { managementCompany: state.managementCompany };
+        // 관리회사명 + 설비 용량: Excel 셀에 없는 값이므로 별도 메타 필드로 전달
+        pdfBody._meta = {
+            managementCompany: state.managementCompany || '',
+            capReceiving:  state.capReceiving  || 0,
+            capGeneration: state.capGeneration || 0,
+            capSolar:      state.capSolar      || 0,
+            capOther:      state.capOther      || 0,
+            totalCapacity: state.results?.totalCapacity || 0
+        };
 
         const pdfRes = await fetch(PDF_SERVER_URL, {
             method: 'POST',
