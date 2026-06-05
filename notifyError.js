@@ -109,20 +109,28 @@ async function notifyClientError({ context, error, customerName, salesManager })
 }
 
 // ── 견적 발행 알림 ────────────────────────────────────────────────────────────
-async function notifyQuoteSent({ manager, customerName, fileName }) {
+async function notifyQuoteSent({ manager, customerName, totalAmount, monthlyAmount, floorArea, grade, companyLabel, serviceItems }) {
     const webhookUrl = process.env.DISCORD_WEBHOOK_QUOTES;
     if (!webhookUrl) return;
+
+    const won = (n) => n ? `${Number(n).toLocaleString('ko-KR')}원` : null;
+
+    const fields = [
+        { name: '담당자', value: manager || '-', inline: true },
+        { name: '고객명', value: customerName || '-', inline: true },
+    ];
+    if (won(totalAmount))   fields.push({ name: '연간 금액',  value: won(totalAmount),   inline: true });
+    if (won(monthlyAmount)) fields.push({ name: '월 납부액',  value: won(monthlyAmount), inline: true });
+    if (floorArea)          fields.push({ name: '연면적',     value: `${Number(floorArea).toLocaleString('ko-KR')}㎡`, inline: true });
+    if (grade)              fields.push({ name: '등급',       value: grade,              inline: true });
+    if (companyLabel)       fields.push({ name: '법인',       value: companyLabel,       inline: true });
+    if (serviceItems)       fields.push({ name: '서비스 항목', value: serviceItems });
 
     await postToDiscord(webhookUrl, {
         embeds: [{
             title: `📄 견적 발행 — ${SERVER_NAME}`,
             color: 0x22c55e,
-            fields: [
-                { name: '담당자', value: manager || '-', inline: true },
-                { name: '대상처', value: customerName || '-', inline: true },
-                { name: '파일명', value: fileName || '-' },
-                { name: '시각', value: toKST(), inline: true }
-            ],
+            fields,
             timestamp: new Date().toISOString()
         }]
     });

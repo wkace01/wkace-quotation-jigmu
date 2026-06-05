@@ -253,7 +253,16 @@ app.post('/generate-pdf', async (req, res) => {
             if (sendErr && !sendErr.message.includes('ECONNRESET')) {
                 console.error('❌ PDF 전송 오류:', sendErr.message);
             } else {
-                notifyQuoteSent({ manager: salesManager, customerName, fileName }).catch(() => {});
+                // 총합계 셀 스캔으로 금액 추출
+                let totalAmount = 0;
+                try {
+                    for (const cells of Object.values(actualData)) {
+                        if (!Array.isArray(cells)) continue;
+                        const found = cells.find(c => c.name === '총합계');
+                        if (found && found.value) { totalAmount = found.value; break; }
+                    }
+                } catch {}
+                notifyQuoteSent({ manager: salesManager, customerName, totalAmount }).catch(() => {});
             }
 
             // 백그라운드: Airtable 동기화 → PDF 첨부 업로드 → cleanup
