@@ -307,11 +307,15 @@ async function syncToAirtable(data, meta = {}) {
     if (meta.managementCompany) quoteFields[QUOTE_FIELDS.관리회사명] = meta.managementCompany;
 
     // 추가 점검범위 (multipleSelects)
-    if (flatMapping['점검범위추가문구']) {
-        const extraStr = flatMapping['점검범위추가문구'];
+    // - 점검범위: '수전실내 배전반' 또는 '수전실내 배전반+EPS실 포함' → 항상 '수전실 내 배전반' 포함
+    // - 점검범위추가문구: 배전반+EPS 선택 시에만 값이 있으므로 두 필드를 모두 참조해야 함
+    {
+        const scopeStr = flatMapping['점검범위'] || '';
+        const extraStr = flatMapping['점검범위추가문구'] || '';
         const extraArr = [];
-        if (extraStr.includes('공용분전반')) extraArr.push('각층공용분전반');
-        if (extraStr.includes('MCC')) extraArr.push('기계실MCC판넬');
+        if (scopeStr.includes('배전반')) extraArr.push('수전실 내 배전반');
+        if (extraStr.includes('공용분전반'))  extraArr.push('각층공용분전반');
+        if (extraStr.includes('MCC'))         extraArr.push('기계실MCC판넬');
         if (extraArr.length > 0) quoteFields[QUOTE_FIELDS.추가점검범위] = extraArr;
     }
 
