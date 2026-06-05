@@ -7,6 +7,7 @@ const { JSDOM } = require('jsdom');
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { notifyServerError, notifyClientError, notifyQuoteSent } = require('./notifyError');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -121,6 +122,7 @@ app.get('/api/address-info', async (req, res) => {
         });
     } catch (err) {
         console.error('❌ 주소 API 프록시 오류:', err.message);
+        notifyServerError({ context: 'GET /api/address-proxy', err, req }).catch(() => {});
         res.status(500).json({ error: err.message });
     }
 });
@@ -250,6 +252,8 @@ app.post('/generate-pdf', async (req, res) => {
         res.sendFile(expectedPdf, {}, async (sendErr) => {
             if (sendErr && !sendErr.message.includes('ECONNRESET')) {
                 console.error('❌ PDF 전송 오류:', sendErr.message);
+            } else {
+                notifyQuoteSent({ manager: salesManager, customerName, fileName }).catch(() => {});
             }
 
             // 백그라운드: Airtable 동기화 → PDF 첨부 업로드 → cleanup
@@ -285,12 +289,14 @@ app.post('/generate-pdf', async (req, res) => {
                 }
             } catch (syncErr) {
                 console.error('❌ 에어테이블 동기화 단계 오류:', syncErr);
+                notifyServerError({ context: 'Airtable 동기화 (직무고시)', err: syncErr, req }).catch(() => {});
                 cleanup(tempXlsx, expectedPdf);
             }
         });
 
     } catch (err) {
         console.error('❌ PDF 생성 오류:', err.message);
+        notifyServerError({ context: 'POST /generate-pdf', err, req }).catch(() => {});
         cleanup(tempXlsx, expectedPdf);
         if (!res.headersSent) res.status(500).json({ error: err.message });
     }
@@ -360,6 +366,7 @@ app.post('/upload-pdf-to-airtable', async (req, res) => {
 
     } catch (err) {
         console.error('❌ 업로드 오류:', err.message);
+        notifyServerError({ context: 'POST /upload-pdf-to-airtable', err, req }).catch(() => {});
         res.status(500).json({ error: err.message });
     } finally {
         cleanup(tempXlsx, expectedPdf);
@@ -397,6 +404,7 @@ app.use('/airtable-proxy', async (req, res) => {
         res.status(airRes.status).json(airData);
     } catch (err) {
         console.error('❌ 프록시 오류:', err.message);
+        notifyServerError({ context: 'airtable-proxy', err, req }).catch(() => {});
         res.status(500).json({ error: err.message });
     }
 });
