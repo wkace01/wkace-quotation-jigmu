@@ -658,6 +658,34 @@ body, .stat-label, .stat-value, .data-table td, .data-table th, .cond-label, .ca
 .status-msg-mobile { display: none; }
 .status-msg-pc { display: inline; }
 
+/* â”€â”€ ì¤‘ë³µ ê³ ê° ëª¨ë‹¬ ì´ë ¥ ì¹´ë“œ â”€â”€ */
+.ch-record {
+    border-radius: 10px;
+    background: var(--toss-bg);
+    padding: 0.75rem 0.875rem;
+    margin-bottom: 0.5rem;
+}
+.ch-record:last-of-type { margin-bottom: 0; }
+.ch-record-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+.ch-record-date   { font-size: 0.78rem; color: var(--toss-text-muted); }
+.ch-record-amount { font-size: 0.88rem; font-weight: 700; color: var(--toss-text-main); white-space: nowrap; }
+.ch-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.2rem; }
+.ch-tag {
+    font-size: 0.68rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: #dde8ff;
+    color: var(--toss-blue);
+    font-weight: 600;
+}
+.ch-record-sub { font-size: 0.73rem; color: var(--toss-text-muted); margin-top: 0.3rem; }
+
 /* --- Mobile Specific Overrides --- */
 @media (max-width: 768px) {
     .status-msg-pc { display: none; }
@@ -715,7 +743,7 @@ body, .stat-label, .stat-value, .data-table td, .data-table th, .cond-label, .ca
 }
 
 
-/* ---- Pill Toggle Group (Á¡°Ë Á¶°Ç ¼±ÅÃ) ---- */
+/* ---- Pill Toggle Group (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½) ---- */
 .pill-toggle-group {
     display: flex;
     gap: 0.35rem;

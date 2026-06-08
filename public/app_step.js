@@ -1,8 +1,22 @@
 // ---- Master Data (Linked from constants.js) ----
-const { 
+const {
     JIGMU_BASE_PRICES,
-    SALES_MANAGERS
+    SALES_MANAGERS,
+    REPRESENTATIVE_PURPOSE_MAP,
+    REPRESENTATIVE_PURPOSE_OPTIONS
 } = window.CONSTANTS;
+
+function escapeHtml(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function mapToRepresentativePurpose(rawPurpose) {
+    if (!rawPurpose) return '조회불가';
+    const key = Object.keys(REPRESENTATIVE_PURPOSE_MAP).find(k => rawPurpose.includes(k));
+    return key ? REPRESENTATIVE_PURPOSE_MAP[key] : '기타';
+}
 
 // ---- State ----
 const state = {
@@ -46,6 +60,9 @@ const state = {
     monthlyApplicable: '없음', // '없음' | '있음'
     monthlyCount: 8,           // 8 | 12 (월차 연간 횟수)
     inspectionScope: '배전반',   // '배전반' | '배전반+EPS'
+    representativePurpose: "",
+    representativePurposeManuallyChanged: false,
+    duplicateCheckChoice: null,
     results: {
         totalCapacity: 0,
         costs: { lowVoltage: 0, highVoltage: 0, generator: 0, thermal: 0, powerQuality: 0, report: 0, solarPanel: 0, monthly: 0, yearlyTotal: 0 }
@@ -373,6 +390,16 @@ document.getElementById('btn-apply-building').addEventListener('click', () => {
         document.getElementById('customer-name').value = bldName;
         state.customerName = bldName;
     }
+
+    // 대표 주용도 자동 설정 (사용자가 수동 변경하지 않은 경우만)
+    if (!state.representativePurposeManuallyChanged) {
+        const rawPurpose = _lastBuildingResult['_rawPurpose'] || '';
+        const mapped = mapToRepresentativePurpose(rawPurpose);
+        state.representativePurpose = mapped;
+        const rpEl = document.getElementById('representative-purpose');
+        if (rpEl) rpEl.value = mapped;
+    }
+
     calculate();
 
     // Visual feedback
@@ -617,13 +644,20 @@ document.getElementById('btn-reset-addr').addEventListener('click', () => {
     document.getElementById('building-fetch-status').style.display = 'none';
     document.getElementById('building-result-content').innerHTML = '';
 
+    // 대표 주용도 리셋
+    state.representativePurpose = "";
+    state.representativePurposeManuallyChanged = false;
+    state.duplicateCheckChoice = null;
+    const rpEl = document.getElementById('representative-purpose');
+    if (rpEl) rpEl.value = '';
+
     // Re-init Kakao embed (clear and re-embed)
     const container = document.getElementById('kakao-embed-container');
     if (container) {
         container.innerHTML = '';
         initKakaoSearch();
     }
-    
+
     goToStep(1);
 });
 
@@ -970,7 +1004,7 @@ document.getElementById('btn-admin-manual-sync').addEventListener('click', async
         
         // 최근 기록 링크 업데이트
         if (airResult && airResult.quotationId) {
-            const recordUrl = `https://airtable.com/appFEZaTg3yZU1QwW/tbloif1mheDqaRRuR/${airResult.quotationId}`;
+            const recordUrl = `https://airtable.com/appBAhIIrG3WhM1c1/tblx4lwYB78EMaLe3/${airResult.quotationId}`;
             const recentEl = document.getElementById('status-recent-record');
             if (recentEl) {
                 recentEl.innerHTML = `<a href="${recordUrl}" target="_blank" style="color:var(--toss-blue); font-weight:600; text-decoration:none;">보기 <i class="fas fa-external-link-alt" style="font-size:0.75rem;"></i></a>`;
@@ -1066,7 +1100,7 @@ document.querySelectorAll('.btn-adj-discount').forEach(btn => {
 // ---- Step Navigation Wizard ----
 let currentStep = 1;
 
-window.goToStep = function(step) {
+window.goToStep = async function(step) {
     // Basic Validation before leaving current step
     if (step === 2 && currentStep === 1) {
         if (!state.address) {
@@ -1075,9 +1109,30 @@ window.goToStep = function(step) {
         }
     }
     if (step === 3 && currentStep === 2) {
-        if (!state.results.totalCapacity) {
-            // alert("설비 용량을 입력해주세요."); 
-            // return;
+        if (!state.representativePurpose) {
+            alert("대표 주용도를 선택해주세요.");
+            const rpEl = document.getElementById('representative-purpose');
+            if (rpEl) rpEl.focus();
+            return;
+        }
+        // 중복 고객 사전 체크
+        const checkAddress = state.roadAddress || state.address;
+        if (checkAddress) {
+            try {
+                const duplicate = await window.airtableService.checkDuplicateCustomer(
+                    checkAddress, state.representativePurpose
+                );
+                if (duplicate) {
+                    const choice = await window.showDuplicateCustomerModal(duplicate, state.representativePurpose);
+                    if (choice === 'cancel') return;
+                    state.duplicateCheckChoice = choice;
+                } else {
+                    state.duplicateCheckChoice = null;
+                }
+            } catch (e) {
+                console.warn('[중복체크] 조회 실패, 계속 진행:', e.message);
+                state.duplicateCheckChoice = null;
+            }
         }
     }
 
@@ -1128,6 +1183,21 @@ window.goToStep = function(step) {
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
 };
+
+(function initRepresentativePurposeSelect() {
+    const el = document.getElementById('representative-purpose');
+    if (!el) return;
+    REPRESENTATIVE_PURPOSE_OPTIONS.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt;
+        option.textContent = opt;
+        el.appendChild(option);
+    });
+    el.addEventListener('change', (e) => {
+        state.representativePurpose = e.target.value;
+        state.representativePurposeManuallyChanged = true;
+    });
+})();
 
 // Start explicitly at Step 1
 goToStep(1);
