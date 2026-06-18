@@ -723,6 +723,7 @@ function generateMapping() {
             { name: "견적일", cell: "C6", value: state.estimateDate || "" },
             { name: "고객명", cell: "C7", value: state.customerName || "" },
             { name: "영업담당자", cell: "O10", value: state.salesManager || "" },
+            { name: "영업담당자 연락처", cell: "V10", value: state.salesManagerPhone || "" },
             { name: "수전용량", cell: "U13", value: state.capReceiving ? `${state.capReceiving}KVA` : "0KVA" },
             { name: "발전용량", cell: "U14", value: state.capGeneration ? `${state.capGeneration}KW` : "0KW" },
             { name: "태양광용량", cell: "U15", value: state.capSolar ? `${state.capSolar}KW` : "0KW" },
