@@ -781,6 +781,10 @@ body, .stat-label, .stat-value, .data-table td, .data-table th, .cond-label, .ca
 }
 .ch-toggle-btn:hover { color: var(--toss-text-sub); }
 
+#customer-history-panel {
+    margin-bottom: 1rem;
+}
+
 /* --- Mobile Specific Overrides --- */
 @media (max-width: 768px) {
     .status-msg-pc { display: none; }
