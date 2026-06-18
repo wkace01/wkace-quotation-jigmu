@@ -197,10 +197,16 @@ app.post('/generate-pdf', async (req, res) => {
     const expectedPdf = tempXlsx.replace('.xlsx', '.pdf');
 
     try {
-        const { templateName, outputSheets, data, airtableInfo, _meta } = req.body;
+        const { templateName, outputSheets, data, airtableInfo, _meta, skipAirtable } = req.body;
         const actualData = data || req.body;
         const managementCompany = _meta?.managementCompany || '';
-        const actualTemplate = templateName || '직무고시 견적서 양식.xlsx';
+        const ALLOWED_TEMPLATES = [
+            '직무고시 견적서 양식.xlsx',
+            '직무고시 견적서 양식_ver1.xlsx'
+        ];
+        const actualTemplate = ALLOWED_TEMPLATES.includes(templateName)
+            ? templateName
+            : '직무고시 견적서 양식.xlsx';
         const actualSheets = outputSheets || Object.keys(actualData);
 
         const workbook = await XlsxPopulate.fromFileAsync(path.join(__dirname, actualTemplate));
@@ -275,6 +281,11 @@ app.post('/generate-pdf', async (req, res) => {
             }
 
             // 백그라운드: Airtable 동기화 → PDF 첨부 업로드 → cleanup
+            if (skipAirtable) {
+                console.log('[Airtable] 클라이언트 요청에 의해 DB 저장 건너뜀');
+                cleanup(tempXlsx, expectedPdf);
+                return;
+            }
             try {
                 const { syncToAirtable } = require('./airtableHandler');
                 const syncResult = await syncToAirtable(actualData, { managementCompany });
