@@ -476,6 +476,33 @@
 
                 <div style="background:var(--toss-input-bg); padding:1.25rem; border-radius:12px; margin-bottom:1rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <span style="font-weight:600; font-size:0.9rem;">Airtable 자동 저장</span>
+                            <p style="font-size:0.78rem; color:var(--toss-text-muted); margin:0.25rem 0 0;">OFF 시 견적서 생성해도 DB에 저장되지 않습니다</p>
+                        </div>
+                        <button id="btn-toggle-airtable"
+                            style="padding:0.4rem 1rem; border-radius:20px; border:none; font-weight:700; font-size:0.85rem; cursor:pointer; background:#dcfce7; color:#15803d;">
+                            ON
+                        </button>
+                    </div>
+                </div>
+
+                <div style="background:var(--toss-input-bg); padding:1.25rem; border-radius:12px; margin-bottom:1rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <span style="font-weight:600; font-size:0.9rem;">견적서 양식 선택</span>
+                            <p style="font-size:0.78rem; color:var(--toss-text-muted); margin:0.25rem 0 0;">PDF 출력 시 사용할 양식 파일</p>
+                        </div>
+                        <select id="select-template"
+                            style="padding:0.4rem 0.75rem; border-radius:8px; border:1px solid var(--toss-border); font-size:0.85rem; background:white; cursor:pointer;">
+                            <option value="직무고시 견적서 양식.xlsx">기본 양식</option>
+                            <option value="직무고시 견적서 양식_ver1.xlsx">이전 양식 (ver1)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="background:var(--toss-input-bg); padding:1.25rem; border-radius:12px; margin-bottom:1rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
                         <span style="font-weight:600; font-size:0.9rem;">최근 저장 기록</span>
                         <div id="status-recent-record">일 없음</div>
                     </div>

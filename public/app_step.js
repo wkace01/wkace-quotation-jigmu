@@ -63,6 +63,8 @@ const state = {
     representativePurpose: "",
     representativePurposeManuallyChanged: false,
     duplicateCheckChoice: null,
+    skipAirtable: false,
+    selectedTemplate: '직무고시 견적서 양식.xlsx',
     results: {
         totalCapacity: 0,
         costs: { lowVoltage: 0, highVoltage: 0, generator: 0, thermal: 0, powerQuality: 0, report: 0, solarPanel: 0, monthly: 0, yearlyTotal: 0 }
@@ -879,6 +881,8 @@ document.getElementById('btn-save-pdf').addEventListener('click', async () => {
 
     try {
         const pdfBody = { ...mapping };
+        pdfBody.templateName = state.selectedTemplate;
+        if (state.skipAirtable) pdfBody.skipAirtable = true;
         // 관리회사명 + 설비 용량: Excel 셀에 없는 값이므로 별도 메타 필드로 전달
         pdfBody._meta = {
             managementCompany: state.managementCompany || '',
@@ -928,7 +932,9 @@ document.getElementById('btn-save-pdf').addEventListener('click', async () => {
         showStatusBar(`❌ 오류 발생: ${pdfErr.message}`, 'error');
     }
 
-    if (pdfOk) {
+    if (pdfOk && state.skipAirtable) {
+        showStatusBar(`✅ <b>${fileName}</b> 다운로드 완료 (에어테이블 저장 건너뜀)`, 'info');
+    } else if (pdfOk) {
         showStatusBar(`✅ <b>${fileName}</b> 완료! (에어테이블 자동 동기화 적용됨)`, 'success');
     }
 
@@ -959,7 +965,10 @@ if (adminTrigger) {
         // JSON 데이터 갱신
         const mapping = generateMapping();
         document.getElementById('json-result').textContent = JSON.stringify(mapping, null, 2);
-        
+
+        // 템플릿 선택 동기화
+        document.getElementById('select-template').value = state.selectedTemplate;
+
         // 서버 상태 체크
         const statusEl = document.getElementById('status-pdf-server');
         statusEl.textContent = '확인 중...';
@@ -1028,6 +1037,26 @@ document.getElementById('btn-admin-reset').addEventListener('click', () => {
         document.getElementById('btn-reset-addr').click();
         document.getElementById('modal-admin').style.display = 'none';
         showStatusBar('시스템이 성공적으로 초기화되었습니다.', 'success');
+    }
+});
+
+// 관리자: 견적서 양식 선택
+document.getElementById('select-template').addEventListener('change', (e) => {
+    state.selectedTemplate = e.target.value;
+});
+
+// 관리자: Airtable 저장 ON/OFF 토글
+document.getElementById('btn-toggle-airtable').addEventListener('click', () => {
+    state.skipAirtable = !state.skipAirtable;
+    const btn = document.getElementById('btn-toggle-airtable');
+    if (state.skipAirtable) {
+        btn.textContent = 'OFF';
+        btn.style.background = '#fee2e2';
+        btn.style.color = '#b91c1c';
+    } else {
+        btn.textContent = 'ON';
+        btn.style.background = '#dcfce7';
+        btn.style.color = '#15803d';
     }
 });
 
