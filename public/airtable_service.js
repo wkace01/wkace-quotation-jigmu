@@ -387,31 +387,49 @@ window.airtableService = {
         const CF_고객고유ID = CUSTOMER_FIELDS.고객고유ID;
         const CF_대표주용도 = CUSTOMER_FIELDS.대표주용도;
 
-        const esc   = encodeURIComponent;
-        const qAddr = roadAddress.replace(/'/g, "\\'");
+        const esc      = encodeURIComponent;
+        const normAddr = roadAddress.replace(/\s/g, '').replace(/'/g, "\\'");
 
         try {
-            const cFormula = esc(`{도로명 주소}='${qAddr}'`);
+            // 공백 정규화 매칭 (buildCustomerFormula와 동일 방식) + 동일 주소 다중 고객 대응
+            const cFormula = esc(`SUBSTITUTE({${CUSTOMER_FIELDS.도로명주소}}, ' ', '')='${normAddr}'`);
             const cUrl = `${PROXY_URL}/${AIRTABLE_CONFIG.BASE_ID}/${AIRTABLE_CONFIG.TABLE_CUSTOMER}`
                 + `?filterByFormula=${cFormula}`
-                + `&maxRecords=1&returnFieldsByFieldId=true`;
+                + `&maxRecords=5&returnFieldsByFieldId=true`;
 
             const cRes = await fetch(cUrl);
             if (!cRes.ok) return null;
             const cData = await cRes.json();
-            const cRecord = cData.records?.[0];
+            const cRecords = cData.records || [];
 
-            const customerUniqueId   = cRecord?.fields?.[CF_고객고유ID] || '';
-            const customerNameFromC  = cRecord?.fields?.[CF_건물명]     || '';
-            const customerRepPurpose = cRecord?.fields?.[CF_대표주용도] || '';
-
-            if (!cRecord || !customerUniqueId) {
-                return { exists: !!cRecord, customerName: customerNameFromC, customerUniqueId, representativePurpose: customerRepPurpose, records: [] };
+            if (cRecords.length === 0) {
+                return { exists: false, customerName: '', customerUniqueId: '', representativePurpose: '', records: [] };
             }
 
-            const qFormula = esc(`{${QF.고객고유ID}}='${customerUniqueId.replace(/'/g, "\\'")}'`);
+            // 대표 고객 정보 (대표주용도가 있는 레코드 우선)
+            const primary = cRecords.find(r => r.fields?.[CF_대표주용도]) || cRecords[0];
+            const customerNameFromC  = primary.fields?.[CF_건물명]     || '';
+            const customerRepPurpose = primary.fields?.[CF_대표주용도] || '';
+            const displayUniqueId    = primary.fields?.[CF_고객고유ID] || '';
+
+            // 모든 고객의 고유 ID 수집 (중복 제거)
+            const uniqueIds = [...new Set(
+                cRecords.map(r => r.fields?.[CF_고객고유ID]).filter(Boolean)
+            )];
+
+            if (uniqueIds.length === 0) {
+                return { exists: true, customerName: customerNameFromC, customerUniqueId: displayUniqueId, representativePurpose: customerRepPurpose, records: [] };
+            }
+
+            // 모든 고객 ID에 대한 견적 조회 (OR 조건)
+            const idConditions = uniqueIds.map(id =>
+                `{${QF.고객고유ID}}='${id.replace(/'/g, "\\'")}'`
+            );
+            const qFormulaStr = idConditions.length === 1
+                ? idConditions[0]
+                : `OR(${idConditions.join(',')})`;
             const qUrl = `${PROXY_URL}/${AIRTABLE_CONFIG.BASE_ID}/${AIRTABLE_CONFIG.TABLE_QUOTATION}`
-                + `?filterByFormula=${qFormula}`
+                + `?filterByFormula=${esc(qFormulaStr)}`
                 + `&sort[0][field]=${QF.발송일}&sort[0][direction]=desc`
                 + `&maxRecords=10&returnFieldsByFieldId=true`;
 
@@ -429,10 +447,10 @@ window.airtableService = {
                         maintFreq:    f[QF.월차횟수]  || '',
                     };
                 });
-                return { exists: true, customerName: customerNameFromC, customerUniqueId, representativePurpose: customerRepPurpose, records };
+                return { exists: true, customerName: customerNameFromC, customerUniqueId: displayUniqueId, representativePurpose: customerRepPurpose, records };
             }
 
-            return { exists: true, customerName: customerNameFromC, customerUniqueId, representativePurpose: customerRepPurpose, records: [] };
+            return { exists: true, customerName: customerNameFromC, customerUniqueId: displayUniqueId, representativePurpose: customerRepPurpose, records: [] };
 
         } catch (e) {
             console.warn('[CustomerHistory] 조회 오류:', e.message);
