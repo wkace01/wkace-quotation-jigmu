@@ -359,6 +359,9 @@ function initKakaoSearch() {
         // Proceed to Step 2 automatically
         goToStep(2);
 
+        // 고객 이력 조회 (비동기, 메인 흐름 차단 없음)
+        loadCustomerHistory(state.roadAddress);
+
         calculate();
 
         // 검색 즉시 자동 조회 트리거
@@ -1162,7 +1165,14 @@ window.goToStep = async function(step) {
     // Explicit visibility toggles (Right Panel Elements)
     document.getElementById('card-summary').style.display = (step >= 2) ? 'block' : 'none';
     document.getElementById('card-bottom-actions').style.display = (step === 3) ? 'flex' : 'none';
-    
+
+    // 고객 이력 패널: 1단계 복귀 시 초기화
+    const _chPanel = document.getElementById('customer-history-panel');
+    if (_chPanel && step === 1) {
+        _chPanel.style.display = 'none';
+        _chPanel.innerHTML = '';
+    }
+
     // Kakao Map iFrame fix: re-init when going back to step 1
     if (step === 1) {
         const kakaoContainer = document.getElementById('kakao-embed-container');
@@ -1202,3 +1212,120 @@ window.goToStep = async function(step) {
 
 // Start explicitly at Step 1
 goToStep(1);
+
+// ── 고객 이력 대시보드 ──────────────────────────────────────────────────────
+function renderCustomerHistory(data) {
+    const panel = document.getElementById('customer-history-panel');
+    if (!panel) return;
+    if (!data) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+
+    panel.style.display = 'block';
+
+    // ① 신규 고객
+    if (!data.exists) {
+        panel.innerHTML = `
+        <div class="card">
+            <div class="ch-header">
+                <span class="card-title" style="margin:0;font-size:1rem;">고객 이력</span>
+                <span class="ch-badge new">✦ 신규 고객</span>
+            </div>
+            <p class="ch-empty">이 주소로 발송된 견적이 없습니다.</p>
+        </div>`;
+        return;
+    }
+
+    // ② 기존 고객
+    const { customerName, customerUniqueId, representativePurpose: historyPurpose, records } = data;
+    const count      = records.length;
+    const latestDate = records[0]?.date || '';
+
+    let daysSince = null, isRecent = false;
+    if (latestDate) {
+        daysSince = Math.floor((Date.now() - new Date(latestDate).getTime()) / 86400000);
+        isRecent  = daysSince <= 90;
+    }
+
+    const purposeBadge = historyPurpose
+        ? `<span class="ch-purpose-badge">${escapeHtml(historyPurpose)}</span>`
+        : '';
+
+    const uidHtml = customerUniqueId
+        ? `<span class="ch-uid">${escapeHtml(customerUniqueId)}</span>${purposeBadge}`
+        : purposeBadge;
+
+    const warnBanner = isRecent
+        ? `<div class="ch-warn-banner">⚠ 최근 ${daysSince}일 전 견적 발송됨 — 중복 발송 주의</div>`
+        : '';
+
+    const itemsHtml = records.map(r => {
+        const scopeTags = (r.serviceTypes || []).map(s =>
+            `<span class="ch-tag">${escapeHtml(s)}</span>`
+        ).join('');
+        const amtTxt = r.totalAmount > 0 ? r.totalAmount.toLocaleString() + '원' : '-';
+
+        const freqTxt = r.maintFreq ? `월차 ${escapeHtml(r.maintFreq)}` : '';
+
+        const subParts = [
+            r.salesManager ? `담당: ${escapeHtml(r.salesManager)}` : '',
+            freqTxt,
+        ].filter(Boolean).join(' · ');
+
+        return `
+        <div class="ch-record">
+            <div class="ch-record-top">
+                <span class="ch-record-date">${escapeHtml(r.date || '-')}</span>
+                <span class="ch-record-amount">${amtTxt}</span>
+            </div>
+            ${scopeTags ? `<div class="ch-tags">${scopeTags}</div>` : ''}
+            ${subParts  ? `<div class="ch-record-sub">${subParts}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    const countBadge = isRecent
+        ? `<span class="ch-badge warn">기존 고객 · ${count}건</span>`
+        : `<span class="ch-badge exist">기존 고객 · ${count}건</span>`;
+
+    panel.innerHTML = `
+    <div class="card">
+        <div class="ch-header">
+            <span class="card-title" style="margin:0;font-size:1rem;">고객 이력</span>
+            ${countBadge}
+        </div>
+        ${uidHtml}
+        ${warnBanner}
+        ${count > 0 ? `
+        <div id="ch-history-list">${itemsHtml}</div>
+        <button class="ch-toggle-btn"
+            onclick="(function(btn){
+                const list = document.getElementById('ch-history-list');
+                const open = list.style.display !== 'none';
+                list.style.display = open ? 'none' : 'block';
+                btn.textContent = open ? '펼치기 ▼' : '접기 ▲';
+            })(this)">
+            접기 ▲
+        </button>` : `<p class="ch-empty">발송된 견적이 없습니다.</p>`}
+    </div>`;
+}
+
+async function loadCustomerHistory(roadAddress) {
+    const panel = document.getElementById('customer-history-panel');
+    if (!panel) return;
+    if (!roadAddress) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+
+    panel.style.display = 'block';
+    panel.innerHTML = `
+    <div class="card">
+        <div class="ch-header" style="margin-bottom:0;">
+            <span class="card-title" style="margin:0;font-size:1rem;">고객 이력</span>
+        </div>
+        <p class="ch-empty"><i class="ch-spin">⟳</i> 조회 중...</p>
+    </div>`;
+
+    try {
+        const data = await window.airtableService.lookupCustomerHistory(roadAddress);
+        renderCustomerHistory(data);
+    } catch (e) {
+        console.warn('[CustomerHistory] 렌더링 실패:', e);
+        panel.style.display = 'none';
+    }
+}
