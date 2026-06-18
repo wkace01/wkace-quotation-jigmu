@@ -371,6 +371,74 @@ window.airtableService = {
 
         return await response.json();
     },
+
+    lookupCustomerHistory: async (roadAddress) => {
+        if (!roadAddress) return null;
+
+        const QF = {
+            발송일:       QUOTATION_FIELDS.견적서발송일,
+            점검범위:     QUOTATION_FIELDS.추가점검범위,
+            견적금액:     QUOTATION_FIELDS.견적금액,
+            영업담당자:   QUOTATION_FIELDS.영업담당자,
+            월차횟수:     QUOTATION_FIELDS.월차점검횟수,
+            고객고유ID:   QUOTATION_FIELDS.고객고유ID,
+        };
+        const CF_건물명     = CUSTOMER_FIELDS.건물명;
+        const CF_고객고유ID = CUSTOMER_FIELDS.고객고유ID;
+        const CF_대표주용도 = CUSTOMER_FIELDS.대표주용도;
+
+        const esc   = encodeURIComponent;
+        const qAddr = roadAddress.replace(/'/g, "\\'");
+
+        try {
+            const cFormula = esc(`{도로명 주소}='${qAddr}'`);
+            const cUrl = `${PROXY_URL}/${AIRTABLE_CONFIG.BASE_ID}/${AIRTABLE_CONFIG.TABLE_CUSTOMER}`
+                + `?filterByFormula=${cFormula}`
+                + `&maxRecords=1&returnFieldsByFieldId=true`;
+
+            const cRes = await fetch(cUrl);
+            if (!cRes.ok) return null;
+            const cData = await cRes.json();
+            const cRecord = cData.records?.[0];
+
+            const customerUniqueId   = cRecord?.fields?.[CF_고객고유ID] || '';
+            const customerNameFromC  = cRecord?.fields?.[CF_건물명]     || '';
+            const customerRepPurpose = cRecord?.fields?.[CF_대표주용도] || '';
+
+            if (!cRecord || !customerUniqueId) {
+                return { exists: !!cRecord, customerName: customerNameFromC, customerUniqueId, representativePurpose: customerRepPurpose, records: [] };
+            }
+
+            const qFormula = esc(`{${QF.고객고유ID}}='${customerUniqueId.replace(/'/g, "\\'")}'`);
+            const qUrl = `${PROXY_URL}/${AIRTABLE_CONFIG.BASE_ID}/${AIRTABLE_CONFIG.TABLE_QUOTATION}`
+                + `?filterByFormula=${qFormula}`
+                + `&sort[0][field]=${QF.발송일}&sort[0][direction]=desc`
+                + `&maxRecords=10&returnFieldsByFieldId=true`;
+
+            const qRes  = await fetch(qUrl);
+            const qData = qRes.ok ? await qRes.json() : { records: [] };
+
+            if (qData.records?.length > 0) {
+                const records = qData.records.map(r => {
+                    const f = r.fields;
+                    return {
+                        date:         f[QF.발송일]    || '',
+                        serviceTypes: f[QF.점검범위]  || [],
+                        totalAmount:  Number(f[QF.견적금액] || 0),
+                        salesManager: typeof f[QF.영업담당자] === 'string' ? f[QF.영업담당자] : '',
+                        maintFreq:    f[QF.월차횟수]  || '',
+                    };
+                });
+                return { exists: true, customerName: customerNameFromC, customerUniqueId, representativePurpose: customerRepPurpose, records };
+            }
+
+            return { exists: true, customerName: customerNameFromC, customerUniqueId, representativePurpose: customerRepPurpose, records: [] };
+
+        } catch (e) {
+            console.warn('[CustomerHistory] 조회 오류:', e.message);
+            return null;
+        }
+    },
 };
 
 // 중복 고객 사전 체크 — goToStep(3) 에서 호출

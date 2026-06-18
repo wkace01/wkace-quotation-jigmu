@@ -686,6 +686,101 @@ body, .stat-label, .stat-value, .data-table td, .data-table th, .cond-label, .ca
 }
 .ch-record-sub { font-size: 0.73rem; color: var(--toss-text-muted); margin-top: 0.3rem; }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   고객 이력 패널 (ch-*) — Toss 톤앤매너
+   ※ 사업부 공통 — 수정 없이 복사 사용
+───────────────────────────────────────────────────────────────────────── */
+
+.ch-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.ch-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+.ch-badge.new   { background: var(--toss-green-bg); color: #15803d; }
+.ch-badge.exist { background: #e8f3ff;               color: var(--toss-blue); }
+.ch-badge.warn  { background: var(--toss-red-bg);    color: var(--toss-red); }
+
+.ch-purpose-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--toss-blue);
+    background: #e8f3ff;
+    border-radius: 999px;
+    padding: 0.18rem 0.55rem;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+}
+
+.ch-uid {
+    display: inline-block;
+    font-size: 0.73rem;
+    font-weight: 600;
+    color: var(--toss-text-sub);
+    background: var(--toss-bg);
+    border: 1px solid var(--toss-border);
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
+    margin-bottom: 0.75rem;
+    letter-spacing: 0.02em;
+}
+
+.ch-warn-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--toss-red);
+    background: var(--toss-red-bg);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.ch-empty {
+    font-size: 0.84rem;
+    color: var(--toss-text-muted);
+    text-align: center;
+    padding: 0.75rem 0 0.25rem;
+}
+
+@keyframes ch-spin-anim {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+.ch-spin {
+    display: inline-block;
+    animation: ch-spin-anim 1s linear infinite;
+    font-style: normal;
+}
+
+.ch-toggle-btn {
+    width: 100%;
+    text-align: center;
+    font-size: 0.74rem;
+    color: var(--toss-text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem 0 0;
+    display: block;
+    transition: color 0.15s;
+}
+.ch-toggle-btn:hover { color: var(--toss-text-sub); }
+
 /* --- Mobile Specific Overrides --- */
 @media (max-width: 768px) {
     .status-msg-pc { display: none; }
