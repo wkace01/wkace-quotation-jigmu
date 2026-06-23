@@ -990,20 +990,80 @@ if (adminTrigger) {
 }
 
 // 관리자 탭 전환
+let adminPricingRendered = false;
 document.querySelectorAll('[data-admin-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
         const targetTab = btn.dataset.adminTab;
-        
+
         // 버튼 활성화 처리
         btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        
+
         // 콘텐츠 표시 처리
         document.querySelectorAll('.admin-tab-content').forEach(content => {
             content.style.display = (content.id === targetTab) ? 'flex' : 'none';
         });
+
+        // 모달 너비 조정: 견적 단가 탭은 900px, 나머지는 700px
+        const modalCard = document.querySelector('#modal-admin > .card');
+        modalCard.style.maxWidth = (targetTab === 'tab-admin-pricing') ? '900px' : '700px';
+
+        // 견적 단가 탭 최초 진입 시 렌더링
+        if (targetTab === 'tab-admin-pricing' && !adminPricingRendered) {
+            renderAdminPricingTab();
+            adminPricingRendered = true;
+        }
     });
 });
+
+// 견적 단가 탭 렌더링
+function renderAdminPricingTab() {
+    const bp = window.CONSTANTS.JIGMU_BASE_PRICES;
+    const items = [
+        { label: '저압 전기설비 점검', key: 'lowVoltage' },
+        { label: '고압 전기설비 점검', key: 'highVoltage' },
+        { label: '예비발전 설비 점검', key: 'generator' },
+        { label: '열화상 적외선측정', key: 'thermal' },
+        { label: '전원 품질분석', key: 'powerQuality' },
+        { label: '기록 및 보고서 작성', key: 'report' },
+        { label: '태양광 발전설비', key: 'solarPanel' },
+    ];
+    const subtotal = items.reduce((sum, it) => sum + bp[it.key], 0);
+    const fmt = v => v.toLocaleString('ko-KR');
+
+    const container = document.getElementById('tab-admin-pricing');
+    container.innerHTML = `
+        <table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin-bottom:1rem;">
+            <thead>
+                <tr style="background:var(--toss-input-bg);">
+                    <th style="text-align:left; padding:0.6rem 0.75rem; font-size:0.75rem; font-weight:600; color:var(--toss-text-muted);">점검 항목명</th>
+                    <th style="text-align:right; padding:0.6rem 0.75rem; font-size:0.75rem; font-weight:600; color:var(--toss-text-muted);">기본 단가 (원)</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${items.map(it => `
+                    <tr>
+                        <td style="padding:0.55rem 0.75rem; border-bottom:1px solid var(--toss-border);">${it.label}</td>
+                        <td style="padding:0.55rem 0.75rem; border-bottom:1px solid var(--toss-border); text-align:right; font-variant-numeric:tabular-nums;">${fmt(bp[it.key])}</td>
+                    </tr>
+                `).join('')}
+                <tr>
+                    <td style="padding:0.65rem 0.75rem; border-top:2px solid var(--toss-blue); font-weight:700; color:var(--toss-blue);">연차점검 소계</td>
+                    <td style="padding:0.65rem 0.75rem; border-top:2px solid var(--toss-blue); text-align:right; font-weight:700; color:var(--toss-blue); font-variant-numeric:tabular-nums;">${fmt(subtotal)}</td>
+                </tr>
+                <tr><td colspan="2" style="padding:0.3rem;"></td></tr>
+                <tr style="background:var(--toss-input-bg);">
+                    <td style="padding:0.55rem 0.75rem; font-weight:600;">월차 점검비 (회당)</td>
+                    <td style="padding:0.55rem 0.75rem; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">${fmt(bp.monthly)}</td>
+                </tr>
+            </tbody>
+        </table>
+        <div style="background:var(--toss-input-bg); padding:1rem 1.25rem; border-radius:12px; font-size:0.8rem; color:var(--toss-text-muted); line-height:1.6;">
+            <i class="fas fa-info-circle" style="color:var(--toss-blue); margin-right:0.25rem;"></i>
+            직무고시 견적은 항목별 고정 단가 × 포함 여부로 산출됩니다. 점검 횟수(1~4회), 할인율, 월차점검 해당 여부에 따라 최종 금액이 변동됩니다.
+        </div>
+    `;
+}
 
 // 관리자: 수동 동기화
 document.getElementById('btn-admin-manual-sync').addEventListener('click', async () => {
