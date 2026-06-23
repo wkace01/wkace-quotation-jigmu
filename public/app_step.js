@@ -1020,47 +1020,129 @@ document.querySelectorAll('[data-admin-tab]').forEach(btn => {
 function renderAdminPricingTab() {
     const bp = window.CONSTANTS.JIGMU_BASE_PRICES;
     const items = [
-        { label: '저압 전기설비 점검', key: 'lowVoltage' },
-        { label: '고압 전기설비 점검', key: 'highVoltage' },
-        { label: '예비발전 설비 점검', key: 'generator' },
-        { label: '열화상 적외선측정', key: 'thermal' },
-        { label: '전원 품질분석', key: 'powerQuality' },
-        { label: '기록 및 보고서 작성', key: 'report' },
-        { label: '태양광 발전설비', key: 'solarPanel' },
+        { label: '저압 전기설비 점검', key: 'lowVoltage', desc: '저압 수전설비 절연저항·접지저항 측정' },
+        { label: '고압 전기설비 점검', key: 'highVoltage', desc: '고압 수전설비 절연저항·보호계전기 시험' },
+        { label: '예비발전 설비 점검', key: 'generator', desc: '비상발전기 기동시험·부하시험' },
+        { label: '열화상 적외선측정', key: 'thermal', desc: '수배전반·케이블 접속부 열화상 촬영' },
+        { label: '전원 품질분석', key: 'powerQuality', desc: '전압·전류·고조파·역률 측정분석' },
+        { label: '기록 및 보고서 작성', key: 'report', desc: '점검 결과 보고서·기록부 작성' },
+        { label: '태양광 발전설비', key: 'solarPanel', desc: '태양광 인버터·접속반 점검' },
     ];
     const subtotal = items.reduce((sum, it) => sum + bp[it.key], 0);
     const fmt = v => v.toLocaleString('ko-KR');
 
     const container = document.getElementById('tab-admin-pricing');
+
+    const thStyle = 'text-align:left; padding:0.5rem 0.6rem; font-size:0.7rem; font-weight:600; color:var(--toss-text-muted); white-space:nowrap;';
+    const thRightStyle = 'text-align:right; padding:0.5rem 0.6rem; font-size:0.7rem; font-weight:600; color:var(--toss-text-muted); white-space:nowrap;';
+    const tdStyle = 'padding:0.45rem 0.6rem; border-bottom:1px solid var(--toss-border); font-size:0.8rem;';
+    const tdRightStyle = 'padding:0.45rem 0.6rem; border-bottom:1px solid var(--toss-border); font-size:0.8rem; text-align:right; font-variant-numeric:tabular-nums;';
+    const tdDescStyle = 'padding:0.45rem 0.6rem; border-bottom:1px solid var(--toss-border); font-size:0.72rem; color:var(--toss-text-muted);';
+
+    const discountRates = [0, 5, 10, 15, 20];
+    const simRows = discountRates.map(rate => {
+        const discounted = subtotal - Math.round(subtotal * rate / 100);
+        const monthly8 = bp.monthly * 8;
+        const monthly12 = bp.monthly * 12;
+        return `<tr>
+            <td style="${tdStyle} text-align:center;">${rate}%</td>
+            <td style="${tdRightStyle}">${fmt(discounted)}</td>
+            <td style="${tdRightStyle}">${fmt(monthly8)}</td>
+            <td style="${tdRightStyle} font-weight:600;">${fmt(discounted + monthly8)}</td>
+            <td style="${tdRightStyle}">${fmt(monthly12)}</td>
+            <td style="${tdRightStyle} font-weight:600;">${fmt(discounted + monthly12)}</td>
+        </tr>`;
+    }).join('');
+
     container.innerHTML = `
-        <table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin-bottom:1rem;">
+        <p style="font-size:0.78rem; color:var(--toss-text-muted); margin-bottom:0.75rem; line-height:1.5;">
+            <i class="fas fa-info-circle" style="color:var(--toss-blue);"></i>
+            constants.js에 설정된 현재 견적 단가입니다. 견적 총액 = 연차점검 합계(할인 적용) + 월차점검 합계
+        </p>
+
+        <table style="width:100%; border-collapse:collapse; margin-bottom:1.25rem;">
             <thead>
                 <tr style="background:var(--toss-input-bg);">
-                    <th style="text-align:left; padding:0.6rem 0.75rem; font-size:0.75rem; font-weight:600; color:var(--toss-text-muted);">점검 항목명</th>
-                    <th style="text-align:right; padding:0.6rem 0.75rem; font-size:0.75rem; font-weight:600; color:var(--toss-text-muted);">기본 단가 (원)</th>
+                    <th style="${thStyle}">점검 항목</th>
+                    <th style="${thStyle}">항목 설명</th>
+                    <th style="${thRightStyle}">기본 단가</th>
                 </tr>
             </thead>
             <tbody>
                 ${items.map(it => `
                     <tr>
-                        <td style="padding:0.55rem 0.75rem; border-bottom:1px solid var(--toss-border);">${it.label}</td>
-                        <td style="padding:0.55rem 0.75rem; border-bottom:1px solid var(--toss-border); text-align:right; font-variant-numeric:tabular-nums;">${fmt(bp[it.key])}</td>
+                        <td style="${tdStyle} font-weight:500;">${it.label}</td>
+                        <td style="${tdDescStyle}">${it.desc}</td>
+                        <td style="${tdRightStyle}">${fmt(bp[it.key])}</td>
                     </tr>
                 `).join('')}
                 <tr>
-                    <td style="padding:0.65rem 0.75rem; border-top:2px solid var(--toss-blue); font-weight:700; color:var(--toss-blue);">연차점검 소계</td>
-                    <td style="padding:0.65rem 0.75rem; border-top:2px solid var(--toss-blue); text-align:right; font-weight:700; color:var(--toss-blue); font-variant-numeric:tabular-nums;">${fmt(subtotal)}</td>
+                    <td style="padding:0.55rem 0.6rem; border-top:2px solid var(--toss-blue); font-weight:700; color:var(--toss-blue);">연차점검 소계</td>
+                    <td style="padding:0.55rem 0.6rem; border-top:2px solid var(--toss-blue); font-size:0.72rem; color:var(--toss-text-muted);">전 항목 포함 시</td>
+                    <td style="padding:0.55rem 0.6rem; border-top:2px solid var(--toss-blue); text-align:right; font-weight:700; color:var(--toss-blue); font-variant-numeric:tabular-nums;">${fmt(subtotal)}</td>
                 </tr>
-                <tr><td colspan="2" style="padding:0.3rem;"></td></tr>
+                <tr><td colspan="3" style="padding:0.2rem;"></td></tr>
                 <tr style="background:var(--toss-input-bg);">
-                    <td style="padding:0.55rem 0.75rem; font-weight:600;">월차 점검비 (회당)</td>
-                    <td style="padding:0.55rem 0.75rem; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">${fmt(bp.monthly)}</td>
+                    <td style="padding:0.5rem 0.6rem; font-weight:600; font-size:0.8rem;">월차 점검비 (회당)</td>
+                    <td style="padding:0.5rem 0.6rem; font-size:0.72rem; color:var(--toss-text-muted);">월 1회 정기 유지관리 점검</td>
+                    <td style="padding:0.5rem 0.6rem; text-align:right; font-weight:600; font-size:0.8rem; font-variant-numeric:tabular-nums;">${fmt(bp.monthly)}</td>
                 </tr>
             </tbody>
         </table>
-        <div style="background:var(--toss-input-bg); padding:1rem 1.25rem; border-radius:12px; font-size:0.8rem; color:var(--toss-text-muted); line-height:1.6;">
-            <i class="fas fa-info-circle" style="color:var(--toss-blue); margin-right:0.25rem;"></i>
-            직무고시 견적은 항목별 고정 단가 × 포함 여부로 산출됩니다. 점검 횟수(1~4회), 할인율, 월차점검 해당 여부에 따라 최종 금액이 변동됩니다.
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:1.25rem;">
+            <div style="background:var(--toss-input-bg); padding:0.85rem 1rem; border-radius:10px;">
+                <div style="font-size:0.72rem; color:var(--toss-text-muted); margin-bottom:0.5rem; font-weight:600;">🔌 월차점검비 (연간)</div>
+                <div style="display:flex; gap:0.5rem;">
+                    <div style="flex:1; background:white; padding:0.5rem 0.65rem; border-radius:8px; border:1px solid var(--toss-border);">
+                        <div style="font-size:0.68rem; color:var(--toss-text-muted);">연 8회</div>
+                        <div style="font-size:0.85rem; font-weight:700; font-variant-numeric:tabular-nums;">${fmt(bp.monthly * 8)}원</div>
+                    </div>
+                    <div style="flex:1; background:white; padding:0.5rem 0.65rem; border-radius:8px; border:1px solid var(--toss-border);">
+                        <div style="font-size:0.68rem; color:var(--toss-text-muted);">연 12회</div>
+                        <div style="font-size:0.85rem; font-weight:700; font-variant-numeric:tabular-nums;">${fmt(bp.monthly * 12)}원</div>
+                    </div>
+                </div>
+            </div>
+            <div style="background:var(--toss-input-bg); padding:0.85rem 1rem; border-radius:10px;">
+                <div style="font-size:0.72rem; color:var(--toss-text-muted); margin-bottom:0.5rem; font-weight:600;">⚡ 견적 조건 옵션</div>
+                <div style="display:flex; flex-wrap:wrap; gap:0.35rem;">
+                    <span style="font-size:0.7rem; padding:0.25rem 0.5rem; background:white; border-radius:6px; border:1px solid var(--toss-border);">점검 횟수: 1~4회</span>
+                    <span style="font-size:0.7rem; padding:0.25rem 0.5rem; background:white; border-radius:6px; border:1px solid var(--toss-border);">정전/무정전</span>
+                    <span style="font-size:0.7rem; padding:0.25rem 0.5rem; background:white; border-radius:6px; border:1px solid var(--toss-border);">항목 포함/제외</span>
+                    <span style="font-size:0.7rem; padding:0.25rem 0.5rem; background:white; border-radius:6px; border:1px solid var(--toss-border);">배전반/+EPS</span>
+                    <span style="font-size:0.7rem; padding:0.25rem 0.5rem; background:white; border-radius:6px; border:1px solid var(--toss-border);">할인율 0~100%</span>
+                </div>
+            </div>
+        </div>
+
+        <div style="font-size:0.78rem; font-weight:600; margin-bottom:0.5rem; color:var(--toss-text-sub);">📊 할인율별 견적 시뮬레이션 (전 항목 포함 기준)</div>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:1rem;">
+            <thead>
+                <tr style="background:var(--toss-input-bg);">
+                    <th style="${thStyle} text-align:center;" rowspan="2">할인율</th>
+                    <th style="${thRightStyle}" rowspan="2">연차점검</th>
+                    <th style="${thStyle} text-align:center; border-bottom:1px solid var(--toss-border);" colspan="2">월차 8회</th>
+                    <th style="${thStyle} text-align:center; border-bottom:1px solid var(--toss-border);" colspan="2">월차 12회</th>
+                </tr>
+                <tr style="background:var(--toss-input-bg);">
+                    <th style="${thRightStyle}">월차 합계</th>
+                    <th style="${thRightStyle}">견적 총액</th>
+                    <th style="${thRightStyle}">월차 합계</th>
+                    <th style="${thRightStyle}">견적 총액</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${simRows}
+            </tbody>
+        </table>
+
+        <div style="background:var(--toss-input-bg); padding:0.85rem 1rem; border-radius:10px; font-size:0.75rem; color:var(--toss-text-muted); line-height:1.6;">
+            <div style="font-weight:600; margin-bottom:0.3rem;">산출 공식</div>
+            <div>• 연차점검 합계 = 포함 항목 단가 합계 × (1 − 할인율%)</div>
+            <div>• 월차점검 합계 = 회당 ${fmt(bp.monthly)}원 × 연간 횟수 (8회 또는 12회)</div>
+            <div>• 견적 총액 = 연차점검 합계 + 월차점검 합계 (부가세 별도)</div>
+            <div style="margin-top:0.3rem; font-size:0.7rem;">※ 점검 횟수(1~4회)·정전 여부·점검 범위는 단가에 영향 없이 PDF 견적서에 표기됩니다.</div>
         </div>
     `;
 }
